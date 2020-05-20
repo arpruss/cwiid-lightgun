@@ -15,6 +15,7 @@ abortConnect = False
 
 CONFIG_DIR = os.sep.join((os.path.expanduser("~"),".wiilightgun"))
 LED_FILE = os.sep.join((os.path.expanduser("~"),".wiilightgun","irledcoordinates"))
+SCREENSHOT_FILE = os.sep.join((os.path.expanduser("~"),".wiilightgun","screenshot"))
 CALIBRATION_FILE = os.sep.join((os.path.expanduser("~"),".wiilightgun","wiimotecalibration"))
 BLACK = (0,0,0)
 WHITE = (255,255,255)
@@ -379,6 +380,12 @@ def getIRQuad(ir):
 def getDisplaySize():
     info = pygame.display.Info()
     return info.current_w, info.current_h    
+
+def screenshot():
+    size = getDisplaySize()
+    img = pygame.Surface(size)
+    img.blit(surface,(0,0),((0,0),size))
+    pygame.img.save(img,SCREENSHOT_FILE+time.time()+".png")
     
 def checkQuitAndKeys():
     global running
@@ -392,9 +399,10 @@ def checkQuitAndKeys():
             if event.key == pygame.K_F8:
                 screenshot()
             keys.add(event.key)
-    if wm and 'buttons' in wm.state and wm.state['buttons'] & cwiid.BTN_HOME:
-        running = False
-        sys.exit(0)
+    if wm and 'buttons' in wm.state:
+        if wm.state['buttons'] & cwiid.BTN_HOME:
+            running = False
+            sys.exit(0)
     return keys
     
 def verticalArrow(xy,length,color=WHITE):
