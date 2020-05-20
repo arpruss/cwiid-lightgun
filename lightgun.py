@@ -13,8 +13,9 @@ import subprocess
 
 abortConnect = False
 
-LED_FILE = os.sep.join((os.path.expanduser("~"),".irledcoordinates"))
-CALIBRATION_FILE = os.sep.join((os.path.expanduser("~"),".wiimotecalibration"))
+CONFIG_DIR = os.sep.join((os.path.expanduser("~"),".wiilightgun"))
+LED_FILE = os.sep.join((os.path.expanduser("~"),".wiilightgun","irledcoordinates"))
+CALIBRATION_FILE = os.sep.join((os.path.expanduser("~"),".wiilightgun","wiimotecalibration"))
 BLACK = (0,0,0)
 WHITE = (255,255,255)
 RED = (255,0,0)
@@ -311,7 +312,7 @@ def showPoints(ir,irQuad):
     height = int(WINDOW_SIZE[1] * 0.4)
     width = height * 4 // 3
     
-    pygame.draw.rect(surface, DARK_GREEN, (cx-width//2, cy-height//2, width, height))
+    pygame.draw.rect(surface, VERY_DARK_GREEN, (cx-width//2, cy-height//2, width, height))
 
     if irQuad:
         for i in range(4):
@@ -388,6 +389,8 @@ def checkQuitAndKeys():
             running = False
             sys.exit(0)
         elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_F8:
+                screenshot()
             keys.add(event.key)
     if wm and 'buttons' in wm.state and wm.state['buttons'] & cwiid.BTN_HOME:
         running = False
@@ -443,15 +446,19 @@ def measure(flexible=False,screenWidth=1.):
         time.sleep(0.005)
         checkQuitAndKeys()
         surface.fill(DARK_GREEN)
-        irQuad = getIRQuad(wm.state['ir_src'])
+        ir = wm.state['ir_src']
+        irQuad = getIRQuad(ir)
+        
         if irQuad:
             CONFIG.setLEDLocations(ledPixel,size)
             CONFIG.yCorrection = yCorrection / size[1]
             s = CONFIG.pointerPosition(irQuad)
             drawCross(s,color=RED)
             
-        drawText("HOME: quit without saving", y=0.6)
-        drawText("A: done", y=0.7)
+        showPoints(ir,irQuad)
+
+        drawText("HOME: quit without saving", y=0.5+0.075*2)
+        drawText("A: done", y=0.5+0.075*3)
 
         buttons = getButtons(wm.state)
         pressed = buttons &~ prevButtons
@@ -499,13 +506,13 @@ def measure(flexible=False,screenWidth=1.):
             drawArrow(xy,bottom,color=WHITE if i==corner else GRAY)
         
         if corner<4:
-            drawText("DPad: move LED location",y=0.4)
-            drawText("-/+: next/previous setting",y=0.5)
-            drawText("LED is %.4g units (%.1f px) off-screen" % (length*scale, length),y=0.8)
+            drawText("DPad: move LED location",y=0.5)
+            drawText("-/+: next/previous setting",y=0.5+0.075)
+            drawText("LED is %.4g units (%.1f px) off-screen" % (length*scale, length),y=0.5+0.075*4)
         else:
-            drawText("Up/Down: adjust Y correction",y=0.4)
-            drawText("-/+: next/previous setting",y=0.5)               
-            drawText("Y correction is %.4g units (%.1f px)" % (yCorrection*scale, yCorrection),y=0.8)
+            drawText("Up/Down: adjust Y correction",y=0.5)
+            drawText("-/+: next/previous setting",y=0.6)               
+            drawText("Y correction is %.4g units (%.1f px)" % (yCorrection*scale, yCorrection),y=0.5+0.075*4)
             ax = int(size[0]//4)
             ay = int(size[1]*0.5-yCorrection/2)            
             b = min(size[1] * .2, yCorrection + size[1] * .1)
@@ -847,6 +854,11 @@ if __name__ == '__main__':
     parser.add_argument("-B", "--background-connect", type=float, default=0, help="Connect in background for this many seconds")
     parser.add_argument("command", help="Run this command while simulating a mouse", nargs="?")
     args = parser.parse_args()
+
+    try:
+        os.mkdir(CONFIG_DIR)
+    except:
+        pass
     
     thread = threading.Thread(target=connect, args=(args.background_connect,))
     thread.daemon = True
