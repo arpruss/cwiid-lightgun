@@ -365,34 +365,46 @@ def updateAcceleration(accel):
     except:
         pass
 
+lastQuad = None
+
+def identifyPoints(points):
+    rot = (lastAngle-math.pi/2)
+    c = math.cos(rot)
+    s = math.sin(rot)
+
+    n = len(points)
+
+    cx = sum(p[0] for p in points)/float(n)
+    cy = sum(p[1] for p in points)/float(n)
+
+    identified = [None for i in range(n)]
+
+    def rotate(p):
+        return (p[0]*c-p[1]*s,p[0]*s+p[1]*c)
+
+    for i in range(n):
+        p = rotate((points[i][0]-cx, points[i][1]-cy))
+        if p[0] < 0 and p[1] < 0 and 0 not in identified:
+            identified[i] = 0
+        elif p[0] > 0 and p[1] < 0 and 1 not in identified:
+            identified[i] = 1
+        elif p[0] > 0 and p[1] > 0 and 2 not in identified:
+            identified[i] = 2
+        elif p[0] < 0 and p[1] > 0 and 3 not in identified:
+            identified[i] = 3
+
+    if None in identified:
+        unidentified = list(set(range(n))-set(identified))
+        if len(unidentified) == 1:
+            identified[identified.index(None)] = unidentified[0]
+
+    return identified
 
 def points3To4(points):
     if CONFIG.ledLocations is None:
         return None
 
-    rot = -(lastAngle-math.pi/2)
-    c = math.cos(rot)
-    s = math.sin(rot)
-
-    cx = sum(p[0] for p in points)/3.
-    cy = sum(p[1] for p in points)/3.
-
-    identified = [None,None,None]
-
-    def rotate(p):
-        return (p[0]*c-p[1]*s,p[0]*s+p[1]*c)
-
-    for i in range(3):
-        p = rotate(points[i])
-        if p[0] < cx and p[1] < cy:
-            identified[i] = 0
-        elif p[0] > cx and p[1] < cy:
-            identified[i] = 1
-        elif p[0] > cx and p[1] > cy:
-            identified[i] = 2
-        elif p[0] < cx and p[1] > cy:
-            identified[i] = 3
-
+    identified = identifyPoints(points)
     if None in identified:
         return None
 
@@ -408,29 +420,51 @@ def points3To4(points):
     if not rvecs:
         return None
 
-    best = 0
     bestR2 = float("inf")
+    missingLED = np.float64((fix(CONFIG.ledLocations[missing]),))
 
-    for i in range(len(rvecs)):
-        r = rvecs[i]
-        r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2]
-        if r2 < bestR2 and not np.isnan(rvecs[i][0]):
-            best = i
-            bestR2 = r2
+    if lastQuad is None:
+        rot = -(lastAngle-math.pi/2)
+        best = 0
+        for i in range(len(rvecs)):
+            r = rvecs[i]
+            r2 = r[0][0]*r[0][0]+r[1][0]*r[1][0]+(r[2][0]+rot)*(r[2][0]+rot)
+            if r2 < bestR2 and not np.isnan(tvecs[i][0]):
+                best = i
+                bestR2 = r2
 
-    rvec = rvecs[best]
-    tvec = tvecs[best]
-    print(rvec)
+        rvec = rvecs[best]
+        tvec = tvecs[best]
 
-    if np.isnan(tvec[0]):
-        return None
+        if np.isnan(tvec[0]):
+            return None
 
-    missingLED = fix(CONFIG.ledLocations[missing])
+        proj = cv2.projectPoints(missingLED,rvec,tvec,INTRINSIC,None)[0][0][0]
+    else:
+        bestProj = None
+        for i in range(len(rvecs)):
+            if not np.isnan(tvecs[i][0]):
+                proj = cv2.projectPoints(missingLED,rvecs[i],tvecs[i],INTRINSIC,None)[0][0][0]
+                r2 = math.hypot(proj[0]-lastQuad[missing][0],proj[1]-lastQuad[missing][1])
+                if r2 < bestR2:
+                    bestProj = proj
+                    bestR2 = r2
+        if bestProj is None:
+            return None
+        proj = bestProj
 
-    proj = cv2.projectPoints(np.float64((missingLED,)),rvec,tvec,INTRINSIC,None)[0][0]
-    return list(points) + [proj[0]]
+    out = [None,None,None,None]
+    for i in range(4):
+        if i == missing:
+            out[i] = proj
+        else:
+            out[i] = points[identified.index(i)]
+
+    return out
     
 def getIRQuad(ir):
+    global lastQuad
+
     if ir is None:
         return None
 
@@ -442,22 +476,21 @@ def getIRQuad(ir):
 
     points = [getPoint(p) for p in ir if p is not None]
 
+    #points = points[:3]
+    #count = 3
+
     if count == 3:
         points = points3To4(points)
         if points is None:
             return None
-    
-    center = sum(p[0] for p in points)/4.,sum(p[1] for p in points)/4.
-    
-    def getAngle(p):
-        x,y = p[0]-center[0],p[1]-center[1]
-        if y == 0 and x == 0:
-            return 0
-        return (math.atan2(y,x) + lastAngle - math.pi / 2 - math.pi) % (2 * math.pi)
-        
-    points.sort(key=getAngle)
-    
-    return points
+        lastQuad = points
+        return points
+    else:
+        identified = identifyPoints(points)
+        if None in identified:
+            return None
+        lastQuad =[points[identified.index(i)] for i in range(4)]
+        return lastQuad
     
 def getDisplaySize():
     info = pygame.display.Info()
