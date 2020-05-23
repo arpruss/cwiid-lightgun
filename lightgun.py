@@ -220,8 +220,10 @@ def minimize(f,a,b,n=4):
 
 def getAddress(wm):        
     try:
+        print(wm.address)
         return wm.address
     except:
+        print("u")
         return "unknown"
         
 def getButtons(state):
@@ -385,7 +387,7 @@ def screenshot():
     size = getDisplaySize()
     img = pygame.Surface(size)
     img.blit(surface,(0,0),((0,0),size))
-    pygame.img.save(img,SCREENSHOT_FILE+time.time()+".png")
+    pygame.image.save(img,SCREENSHOT_FILE+str(time.time())+".png")
     
 def checkQuitAndKeys():
     global running
@@ -457,13 +459,13 @@ def measure(flexible=False,screenWidth=1.):
         ir = wm.state['ir_src']
         irQuad = getIRQuad(ir)
         
+        showPoints(ir,irQuad)
+
         if irQuad:
             CONFIG.setLEDLocations(ledPixel,size)
             CONFIG.yCorrection = yCorrection / size[1]
             s = CONFIG.pointerPosition(irQuad)
             drawCross(s,color=RED)
-            
-        showPoints(ir,irQuad)
 
         drawText("HOME: quit without saving", y=0.5+0.075*2)
         drawText("A: done", y=0.5+0.075*3)
@@ -667,7 +669,9 @@ def center():
             index = 1
         else:
             break
-        irQuad = getIRQuad(wm.state['ir_src'])
+        ir = wm.state['ir_src']
+        irQuad = getIRQuad(ir)
+        showPoints(ir,irQuad)
         #print(lastAngle, (1-index*2)*math.pi/2)
         if irQuad and abs(lastAngle - (1-index*2)*math.pi/2) < math.pi/4:
             drawText("Press C on Nunchuk or SPACE on keyboard", y=0.7)
