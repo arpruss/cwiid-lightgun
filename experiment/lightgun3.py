@@ -46,7 +46,8 @@ NUNCHUK_Z = cwiid.NUNCHUK_BTN_Z << NUNCHUK_SHIFT
 NUNCHUK_DEADZONE = 40
 NUNCHUK_HYSTERESIS = 10
 ASPECT_RATIO = 1900./1080
-CAMERA_ASPECT_RATIO = 1024./768
+#CAMERA_ASPECT_RATIO = 1024./768
+
 # for moderate angles, setting this to False gets about half a pixel more
 # precision, which probably isn't worth it
 FAST_CORRECTION = True
@@ -169,13 +170,13 @@ class Config():
     # get the scaling between camera Y units and display Y units by looking at the angle at which
     # the scaling is lowest
     def getYScale(self,h,r=0.01):
-        c=h.apply((0.5,0.5))
+        c=h.apply((0,0))
         def d(a,b):
             ab0 = (a[0]-b[0])*self.aspect
             ab1 = a[1]-b[1]
             return ab0*ab0+ab1*ab1
         def f(angle):
-            return d(h.apply((0.5+r*math.cos(angle)/CAMERA_ASPECT_RATIO,0.5+r*math.sin(angle))),c)
+            return d(h.apply((0+r*math.cos(angle),0+r*math.sin(angle))),c)
         z,_ = minimize(f,0,math.pi)
         return math.sqrt(z)/r
 
@@ -253,7 +254,7 @@ def wiimoteCallback(list,t):
     WIIMOTE_EVENT.set()
 
 # 1280
-INTRINSIC = np.array( ( [1280/768.*3/4.,0,0.5],
+INTRINSIC = np.array( ( [1280/768.,0,0.5],
     [0,1280/768.,0.5],
     [0,0,1] ), dtype=np.float32 )
 
@@ -287,7 +288,6 @@ class Homography:
                 self.d,self.e,self.f = m[1]
                 self.g,self.h = m[2][:2]
 
-
     def test3(self,output,input,tout,tin):
         input = np.array([[p[0]*16./9,p[1],0] for p in input],dtype=np.float32)
         output = np.array(output,dtype=np.float32)
@@ -301,7 +301,7 @@ class Homography:
                 best = i
                 bestR2 = r2
         out = cv2.projectPoints(input,rvecs[best],tvecs[best],INTRINSIC,None)[0]
-        print(output,out)
+        print(output[3],out[3])
         
     @property
     def matrix(self):
@@ -358,7 +358,7 @@ def showPoints(ir,irQuad):
             pygame.draw.rect(surface, WHITE, (x-size*PXSCALE/2, y-size*PXSCALE/2, size*PXSCALE, size*PXSCALE))
     
 def getPoint(p):
-    return 0.5 + (p['pos'][0]-CENTER_X) / 1023., 0.5 + (p['pos'][1]-CENTER_Y) / 767.
+    return (p['pos'][0]-CENTER_X) / 768., (p['pos'][1]-CENTER_Y) / 768.
     
 accelHistory = []    
 lastAngle = math.pi / 2
