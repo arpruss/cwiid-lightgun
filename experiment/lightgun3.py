@@ -176,7 +176,7 @@ class Config():
             ab1 = a[1]-b[1]
             return ab0*ab0+ab1*ab1
         def f(angle):
-            return d(h.apply((0+r*math.cos(angle),0+r*math.sin(angle))),c)
+            return d(h.apply((r*math.cos(angle),r*math.sin(angle))),c)
         z,_ = minimize(f,0,math.pi)
         return math.sqrt(z)/r
 
@@ -184,15 +184,15 @@ class Config():
         h = Homography(irQuad,self.ledLocations)
         if self.yCorrection:
             if FAST_CORRECTION:
-                xy = h.apply((0.5,0.5))
-                xy2 = h.apply((0.5,0.6))
+                xy = h.apply((0,0))
+                xy2 = h.apply((0.01,0.01))
                 dx,dy = (xy2[0]-xy[0])*self.aspect,xy2[1]-xy[1]
                 d = math.hypot(dx,dy)
                 return xy[0]+self.yCorrection*dx/d/self.aspect,xy[1]+self.yCorrection*dy/d
             else:
-                return h.apply((0.5,0.5+self.yCorrection/self.getYScale(h)))
+                return h.apply((0,self.yCorrection/self.getYScale(h)))
         else:
-            return h.apply((0.5,0.5))
+            return h.apply((0,0))
 
 CONFIG = Config()
             
@@ -222,10 +222,8 @@ def minimize(f,a,b,n=4):
 
 def getAddress(wm):        
     try:
-        print(wm.address)
         return wm.address
     except:
-        print("u")
         return "unknown"
         
 def getButtons(state):
@@ -278,7 +276,6 @@ class Homography:
                                  [0,0,0,x4,y4,1,-x4*Y4,-y4*Y4] ) )
             inv = np.linalg.inv(matrix)
             self.a,self.b,self.c,self.d,self.e,self.f,self.g,self.h = inv.dot(np.array([X1,X2,X3,X4,Y1,Y2,Y3,Y4]))
-            self.test3(input[0:4],output[0:4],input[3],output[3])
         elif len(args) == 1:
             if len(args[0]) == 8:
                 self.a,self.b,self.c,self.d,self.e,self.f,self.g,self.h = args[0]
@@ -288,21 +285,6 @@ class Homography:
                 self.d,self.e,self.f = m[1]
                 self.g,self.h = m[2][:2]
 
-    def test3(self,output,input,tout,tin):
-        input = np.array([[p[0]*16./9,p[1],0] for p in input],dtype=np.float32)
-        output = np.array(output,dtype=np.float32)
-        retval, rvecs, tvecs = cv2.solveP3P(input,output,INTRINSIC,None,cv2.SOLVEPNP_AP3P)
-        best = 0
-        bestR2 = float("inf")
-        for i in range(len(rvecs)):
-            r = rvecs[i]
-            r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2]
-            if r2 < bestR2:
-                best = i
-                bestR2 = r2
-        out = cv2.projectPoints(input,rvecs[best],tvecs[best],INTRINSIC,None)[0]
-        print(output[3],out[3])
-        
     @property
     def matrix(self):
         return np.array( ( (self.a,self.b,self.c),(self.d,self.e,self.f),(self.g,self.h,1) ) )
@@ -340,12 +322,14 @@ def showPoints(ir,irQuad):
     
     pygame.draw.rect(surface, VERY_DARK_GREEN, (cx-width//2, cy-height//2, width, height))
 
+    rawPoints = [getPoint(p) for p in ir if p is not None]
+
     if irQuad:
         for i in range(4):
             xy = irQuad[i]
-            x = int(cx-width//2 + xy[0] * width)
-            y = int(cy-height//2 + (1-xy[1]) * height)
-            text = MYFONT.render(str(i+1), True, RED)
+            x = int(cx + xy[0] * height)
+            y = int(cy + (-xy[1]) * height)
+            text = MYFONT.render(str(i+1), True, RED if (tuple(xy) in rawPoints) else WHITE)
             textRect = text.get_rect()
             textRect.center = (x,y)
             surface.blit(text, textRect)
@@ -353,8 +337,8 @@ def showPoints(ir,irQuad):
         if point is not None:
             xy = getPoint(point)
             size = point.get('size',1)
-            x = int(cx-width//2 + xy[0] * width)
-            y = int(cy-height//2 + (1-xy[1]) * height)
+            x = int(cx + xy[0] * height)
+            y = int(cy + (-xy[1]) * height)
             pygame.draw.rect(surface, WHITE, (x-size*PXSCALE/2, y-size*PXSCALE/2, size*PXSCALE, size*PXSCALE))
     
 def getPoint(p):
@@ -380,15 +364,88 @@ def updateAcceleration(accel):
         lastAngle = math.atan2(s[2],s[0])
     except:
         pass
+
+
+def points3To4(points):
+    if CONFIG.ledLocations is None:
+        return None
+
+    rot = -(lastAngle-math.pi/2)
+    c = math.cos(rot)
+    s = math.sin(rot)
+
+    cx = sum(p[0] for p in points)/3.
+    cy = sum(p[1] for p in points)/3.
+
+    identified = [None,None,None]
+
+    def rotate(p):
+        return (p[0]*c-p[1]*s,p[0]*s+p[1]*c)
+
+    for i in range(3):
+        p = rotate(points[i])
+        if p[0] < cx and p[1] < cy:
+            identified[i] = 0
+        elif p[0] > cx and p[1] < cy:
+            identified[i] = 1
+        elif p[0] > cx and p[1] > cy:
+            identified[i] = 2
+        elif p[0] < cx and p[1] > cy:
+            identified[i] = 3
+
+    if None in identified:
+        return None
+
+    missing = tuple(set((0,1,2,3)) - set(identified))[0]
+
+    def fix(p):
+        return (p[0]*CONFIG.aspect,p[1],0)
+
+    source = np.array([fix(CONFIG.ledLocations[identified[i]]) for i in range(3)],dtype=np.float64)
+    dest = np.array(points,dtype=np.float64)
+    retval, rvecs, tvecs = cv2.solveP3P(source,dest,INTRINSIC,None,cv2.SOLVEPNP_AP3P)
+
+    if not rvecs:
+        return None
+
+    best = 0
+    bestR2 = float("inf")
+
+    for i in range(len(rvecs)):
+        r = rvecs[i]
+        r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2]
+        if r2 < bestR2 and not np.isnan(rvecs[i][0]):
+            best = i
+            bestR2 = r2
+
+    rvec = rvecs[best]
+    tvec = tvecs[best]
+    print(rvec)
+
+    if np.isnan(tvec[0]):
+        return None
+
+    missingLED = fix(CONFIG.ledLocations[missing])
+
+    proj = cv2.projectPoints(np.float64((missingLED,)),rvec,tvec,INTRINSIC,None)[0][0]
+    return list(points) + [proj[0]]
     
 def getIRQuad(ir):
     if ir is None:
         return None
+
     # get the IR LED quad, normalized and arranged counterclockwise from lower left
-    if sum((1 for p in ir if p is not None)) != 4:
+    count = sum((1 for p in ir if p is not None))
+
+    if count !=3 and count != 4:
         return None
-        
-    points = [getPoint(p) for p in ir]
+
+    points = [getPoint(p) for p in ir if p is not None]
+
+    if count == 3:
+        points = points3To4(points)
+        if points is None:
+            return None
     
     center = sum(p[0] for p in points)/4.,sum(p[1] for p in points)/4.
     
