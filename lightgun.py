@@ -1,3 +1,4 @@
+
 import cwiid
 import uinput
 import time
@@ -10,6 +11,11 @@ import atexit
 import threading
 import argparse
 import subprocess
+
+USE_P3P = True # use P3P if only three points are visible at a given time
+
+if USE_P3P:
+    import cv2
 
 abortConnect = False
 
@@ -45,7 +51,8 @@ NUNCHUK_Z = cwiid.NUNCHUK_BTN_Z << NUNCHUK_SHIFT
 NUNCHUK_DEADZONE = 40
 NUNCHUK_HYSTERESIS = 10
 ASPECT_RATIO = 1900./1080
-CAMERA_ASPECT_RATIO = 1024./768
+#CAMERA_ASPECT_RATIO = 1024./768
+
 # for moderate angles, setting this to False gets about half a pixel more
 # precision, which probably isn't worth it
 FAST_CORRECTION = True
@@ -168,13 +175,13 @@ class Config():
     # get the scaling between camera Y units and display Y units by looking at the angle at which
     # the scaling is lowest
     def getYScale(self,h,r=0.01):
-        c=h.apply((0.5,0.5))
+        c=h.apply((0,0))
         def d(a,b):
             ab0 = (a[0]-b[0])*self.aspect
             ab1 = a[1]-b[1]
             return ab0*ab0+ab1*ab1
         def f(angle):
-            return d(h.apply((0.5+r*math.cos(angle)/CAMERA_ASPECT_RATIO,0.5+r*math.sin(angle))),c)
+            return d(h.apply((r*math.cos(angle),r*math.sin(angle))),c)
         z,_ = minimize(f,0,math.pi)
         return math.sqrt(z)/r
 
@@ -182,15 +189,15 @@ class Config():
         h = Homography(irQuad,self.ledLocations)
         if self.yCorrection:
             if FAST_CORRECTION:
-                xy = h.apply((0.5,0.5))
-                xy2 = h.apply((0.5,0.6))
+                xy = h.apply((0,0))
+                xy2 = h.apply((0.01,0.01))
                 dx,dy = (xy2[0]-xy[0])*self.aspect,xy2[1]-xy[1]
                 d = math.hypot(dx,dy)
                 return xy[0]+self.yCorrection*dx/d/self.aspect,xy[1]+self.yCorrection*dy/d
             else:
-                return h.apply((0.5,0.5+self.yCorrection/self.getYScale(h)))
+                return h.apply((0,self.yCorrection/self.getYScale(h)))
         else:
-            return h.apply((0.5,0.5))
+            return h.apply((0,0))
 
 CONFIG = Config()
             
@@ -220,10 +227,8 @@ def minimize(f,a,b,n=4):
 
 def getAddress(wm):        
     try:
-        print(wm.address)
         return wm.address
     except:
-        print("u")
         return "unknown"
         
 def getButtons(state):
@@ -250,6 +255,11 @@ def wiimoteCallback(list,t):
     global lastMessage
     lastMessage = time.time()
     WIIMOTE_EVENT.set()
+
+# 1280
+INTRINSIC = np.array( ( [1280/768.,0,0.5],
+    [0,1280/768.,0.5],
+    [0,0,1] ), dtype=np.float32 )
 
 class Homography:
     def __init__(self,*args):
@@ -279,7 +289,7 @@ class Homography:
                 self.a,self.b,self.c = m[0]
                 self.d,self.e,self.f = m[1]
                 self.g,self.h = m[2][:2]
-        
+
     @property
     def matrix(self):
         return np.array( ( (self.a,self.b,self.c),(self.d,self.e,self.f),(self.g,self.h,1) ) )
@@ -317,12 +327,14 @@ def showPoints(ir,irQuad):
     
     pygame.draw.rect(surface, VERY_DARK_GREEN, (cx-width//2, cy-height//2, width, height))
 
+    rawPoints = [getPoint(p) for p in ir if p is not None]
+
     if irQuad:
         for i in range(4):
             xy = irQuad[i]
-            x = int(cx-width//2 + xy[0] * width)
-            y = int(cy-height//2 + (1-xy[1]) * height)
-            text = MYFONT.render(str(i+1), True, RED)
+            x = int(cx + xy[0] * height)
+            y = int(cy + (-xy[1]) * height)
+            text = MYFONT.render(str(i+1), True, RED if (tuple(xy) in rawPoints) else WHITE)
             textRect = text.get_rect()
             textRect.center = (x,y)
             surface.blit(text, textRect)
@@ -330,12 +342,12 @@ def showPoints(ir,irQuad):
         if point is not None:
             xy = getPoint(point)
             size = point.get('size',1)
-            x = int(cx-width//2 + xy[0] * width)
-            y = int(cy-height//2 + (1-xy[1]) * height)
+            x = int(cx + xy[0] * height)
+            y = int(cy + (-xy[1]) * height)
             pygame.draw.rect(surface, WHITE, (x-size*PXSCALE/2, y-size*PXSCALE/2, size*PXSCALE, size*PXSCALE))
     
 def getPoint(p):
-    return 0.5 + (p['pos'][0]-CENTER_X) / 1023., 0.5 + (p['pos'][1]-CENTER_Y) / 767.
+    return (p['pos'][0]-CENTER_X) / 768., (p['pos'][1]-CENTER_Y) / 768.
     
 accelHistory = []    
 lastAngle = math.pi / 2
@@ -357,27 +369,133 @@ def updateAcceleration(accel):
         lastAngle = math.atan2(s[2],s[0])
     except:
         pass
+
+lastQuad = None
+
+def identifyPoints(points):
+    rot = (lastAngle-math.pi/2)
+    c = math.cos(rot)
+    s = math.sin(rot)
+
+    n = len(points)
+
+    cx = sum(p[0] for p in points)/float(n)
+    cy = sum(p[1] for p in points)/float(n)
+
+    identified = [None for i in range(n)]
+
+    def rotate(p):
+        return (p[0]*c-p[1]*s,p[0]*s+p[1]*c)
+
+    for i in range(n):
+        p = rotate((points[i][0]-cx, points[i][1]-cy))
+        if p[0] < 0 and p[1] < 0 and 0 not in identified:
+            identified[i] = 0
+        elif p[0] > 0 and p[1] < 0 and 1 not in identified:
+            identified[i] = 1
+        elif p[0] > 0 and p[1] > 0 and 2 not in identified:
+            identified[i] = 2
+        elif p[0] < 0 and p[1] > 0 and 3 not in identified:
+            identified[i] = 3
+
+    if None in identified:
+        unidentified = list(set(range(n))-set(identified))
+        if len(unidentified) == 1:
+            identified[identified.index(None)] = unidentified[0]
+
+    return identified
+
+def points3To4(points):
+    if CONFIG.ledLocations is None:
+        return None
+
+    identified = identifyPoints(points)
+    if None in identified:
+        return None
+
+    missing = tuple(set((0,1,2,3)) - set(identified))[0]
+
+    def fix(p):
+        return (p[0]*CONFIG.aspect,p[1],0)
+
+    source = np.array([fix(CONFIG.ledLocations[identified[i]]) for i in range(3)],dtype=np.float64)
+    dest = np.array(points,dtype=np.float64)
+    retval, rvecs, tvecs = cv2.solveP3P(source,dest,INTRINSIC,None,cv2.SOLVEPNP_AP3P)
+
+    if not rvecs:
+        return None
+
+    bestR2 = float("inf")
+    missingLED = np.float64((fix(CONFIG.ledLocations[missing]),))
+
+    if lastQuad is None:
+        rot = -(lastAngle-math.pi/2)
+        best = 0
+        for i in range(len(rvecs)):
+            r = rvecs[i]
+            r2 = r[0][0]*r[0][0]+r[1][0]*r[1][0]+(r[2][0]+rot)*(r[2][0]+rot)
+            if r2 < bestR2 and not np.isnan(tvecs[i][0]):
+                best = i
+                bestR2 = r2
+
+        rvec = rvecs[best]
+        tvec = tvecs[best]
+
+        if np.isnan(tvec[0]):
+            return None
+
+        proj = cv2.projectPoints(missingLED,rvec,tvec,INTRINSIC,None)[0][0][0]
+    else:
+        bestProj = None
+        for i in range(len(rvecs)):
+            if not np.isnan(tvecs[i][0]):
+                proj = cv2.projectPoints(missingLED,rvecs[i],tvecs[i],INTRINSIC,None)[0][0][0]
+                r2 = math.hypot(proj[0]-lastQuad[missing][0],proj[1]-lastQuad[missing][1])
+                if r2 < bestR2:
+                    bestProj = proj
+                    bestR2 = r2
+        if bestProj is None:
+            return None
+        proj = bestProj
+
+    out = [None,None,None,None]
+    for i in range(4):
+        if i == missing:
+            out[i] = proj
+        else:
+            out[i] = points[identified.index(i)]
+
+    return out
     
 def getIRQuad(ir):
+    global lastQuad
+
     if ir is None:
         return None
+
     # get the IR LED quad, normalized and arranged counterclockwise from lower left
-    if sum((1 for p in ir if p is not None)) != 4:
+    count = sum((1 for p in ir if p is not None))
+
+    if count !=3 and count != 4:
         return None
-        
-    points = [getPoint(p) for p in ir]
-    
-    center = sum(p[0] for p in points)/4.,sum(p[1] for p in points)/4.
-    
-    def getAngle(p):
-        x,y = p[0]-center[0],p[1]-center[1]
-        if y == 0 and x == 0:
-            return 0
-        return (math.atan2(y,x) + lastAngle - math.pi / 2 - math.pi) % (2 * math.pi)
-        
-    points.sort(key=getAngle)
-    
-    return points
+
+    if count == 3 and not USE_P3P:
+        return None
+
+    points = [getPoint(p) for p in ir if p is not None]
+
+    if count == 3:
+        points = points3To4(points)
+        if points is None:
+            return None
+        lastQuad = points
+        return points
+    else:
+        identified = identifyPoints(points)
+        if None in identified:
+            return None
+        lastQuad =[points[identified.index(i)] for i in range(4)]
+        return lastQuad
     
 def getDisplaySize():
     info = pygame.display.Info()
