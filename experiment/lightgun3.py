@@ -1,5 +1,5 @@
+
 import cwiid
-import cv2
 import uinput
 import time
 import math
@@ -11,6 +11,11 @@ import atexit
 import threading
 import argparse
 import subprocess
+
+USE_P3P = True # use P3P if only three points are visible at a given time
+
+if USE_P3P:
+    import cv2
 
 abortConnect = False
 
@@ -474,10 +479,10 @@ def getIRQuad(ir):
     if count !=3 and count != 4:
         return None
 
-    points = [getPoint(p) for p in ir if p is not None]
+    if count == 3 and not USE_P3P:
+        return None
 
-    #points = points[:3]
-    #count = 3
+    points = [getPoint(p) for p in ir if p is not None]
 
     if count == 3:
         points = points3To4(points)
