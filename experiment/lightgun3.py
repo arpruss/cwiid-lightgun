@@ -13,6 +13,7 @@ import argparse
 import subprocess
 
 USE_P3P = True # use P3P if only three points are visible at a given time
+P3P_PROXIMITY_PREFERENCE = True # choose the solution closest to the last solution
 
 if USE_P3P:
     import cv2
@@ -334,7 +335,7 @@ def showPoints(ir,irQuad):
             xy = irQuad[i]
             x = int(cx + xy[0] * height)
             y = int(cy + (-xy[1]) * height)
-            text = MYFONT.render(str(i+1), True, RED if (tuple(xy) in rawPoints) else WHITE)
+            text = MYFONT.render(str(i+1), True, RED if (tuple(xy) in rawPoints) else GRAY)
             textRect = text.get_rect()
             textRect.center = (x,y)
             surface.blit(text, textRect)
@@ -420,7 +421,7 @@ def points3To4(points):
 
     source = np.array([fix(CONFIG.ledLocations[identified[i]]) for i in range(3)],dtype=np.float64)
     dest = np.array(points,dtype=np.float64)
-    retval, rvecs, tvecs = cv2.solveP3P(source,dest,INTRINSIC,None,cv2.SOLVEPNP_AP3P)
+    retval, rvecs, tvecs = cv2.solveP3P(source,dest,INTRINSIC,None,cv2.SOLVEPNP_AP3P) # AP3P
 
     if not rvecs:
         return None
@@ -428,24 +429,29 @@ def points3To4(points):
     bestR2 = float("inf")
     missingLED = np.float64((fix(CONFIG.ledLocations[missing]),))
 
-    if lastQuad is None:
-        rot = -(lastAngle-math.pi/2)
-        best = 0
+    if lastQuad is None or not P3P_PROXIMITY_PREFERENCE:
+        a = accelHistory[-1][1]
+        accel = np.float64((-a[0],a[2],a[1]))
+        base = np.float64((0,math.sqrt(accel[0]*accel[0]+accel[1]*accel[1]+accel[2]*accel[2]),0))
+        best = None
+        bestR2 = None
         for i in range(len(rvecs)):
-            r = rvecs[i]
-            r2 = r[0][0]*r[0][0]+r[1][0]*r[1][0]+(r[2][0]+rot)*(r[2][0]+rot)
-            if r2 < bestR2 and not np.isnan(tvecs[i][0]):
-                best = i
-                bestR2 = r2
+            if not np.isnan(tvecs[i][0]):
+                #rotationMatrix = np.linalg.inv(cv2.Rodrigues(rvecs[i])[0])
+                rotationMatrix = cv2.Rodrigues(rvecs[i])[0]
+                delta = rotationMatrix.dot(base) - accel
+                r2 = delta[0]*delta[0]+delta[1]*delta[1]+delta[2]*delta[2]
+                if best is None or r2 < bestR2:
+                    best = i
+                    bestR2 = r2
 
-        rvec = rvecs[best]
-        tvec = tvecs[best]
-
-        if np.isnan(tvec[0]):
+        if best is None:
             return None
 
-        proj = cv2.projectPoints(missingLED,rvec,tvec,INTRINSIC,None)[0][0][0]
+        proj = cv2.projectPoints(missingLED,rvecs[best],tvecs[best],INTRINSIC,None)[0][0][0]
     else:
+        if not accelHistory:
+            return None
         bestProj = None
         for i in range(len(rvecs)):
             if not np.isnan(tvecs[i][0]):
