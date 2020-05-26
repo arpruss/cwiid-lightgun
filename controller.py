@@ -232,7 +232,7 @@ def run(command):
     abortConnect = True
                 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Calibrate and use Wiimote with four IR LEDs around screen.")
+    parser = argparse.ArgumentParser(description="Use Wiimote to emulate a RetroArch controller")
     parser.add_argument("-o", "--horizontal", action="store_true", help="Horizontal mode (without lightgun)")
     #parser.add_argument("-m", "--mouse-name", help="Set name of mouse device", default="LightgunMouse")
     parser.add_argument("-b", "--buttons-name", help="Set name of buttons device", default="WiimoteButtons")
