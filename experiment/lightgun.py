@@ -60,7 +60,6 @@ FAST_CORRECTION = True
 CALIBRATION_CORNERS = ((0.125,0.05), (0.875,0.05), (0.875,0.95), (0.125,0.95))
 UNIT_SQUARE = ((0,0), (1,0), (1,1), (0,1))
 
-
 verticalMap = ((cwiid.BTN_B, uinput.BTN_MOUSE),
         (cwiid.BTN_A, uinput.BTN_RIGHT),
         (cwiid.BTN_1, uinput.KEY_Z),
@@ -83,7 +82,7 @@ minusVerticalMap = ((cwiid.BTN_DOWN, uinput.KEY_F6),
         (cwiid.BTN_HOME, uinput.KEY_F2),
         (cwiid.BTN_1, uinput.KEY_LEFTBRACE),
         (cwiid.BTN_2, uinput.KEY_RIGHTBRACE))
-       
+ 
 horizontalMap = (
         (cwiid.BTN_B, uinput.KEY_S),
         (cwiid.BTN_A, uinput.KEY_A),

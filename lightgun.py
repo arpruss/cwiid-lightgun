@@ -976,7 +976,7 @@ def run(command):
     abortConnect = True
                 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(prog="wiimotemap", description="Calibrate and use Wiimote with four IR LEDs around screen.")
+    parser = argparse.ArgumentParser(description="Calibrate and use Wiimote with four IR LEDs around screen.")
     parser.add_argument("-c", "--calibrate", action="store_true", help="Force calibration")
     parser.add_argument("-C", "--center", action="store_true", help="Center calibration for individual Wiimote")
     parser.add_argument("-M", "--measure", action="store_true", help="Calibrate by manual measurement of IR LED positions.")
