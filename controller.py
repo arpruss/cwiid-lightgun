@@ -40,10 +40,8 @@ NUNCHUK_Z = cwiid.NUNCHUK_BTN_Z << NUNCHUK_SHIFT
 NUNCHUK_DEADZONE = 40
 NUNCHUK_HYSTERESIS = 10
 
-verticalMap = ((cwiid.BTN_B, uinput.BTN_MOUSE),
-        (cwiid.BTN_A, uinput.BTN_RIGHT),
-        (cwiid.BTN_1, uinput.KEY_Z),
-        (cwiid.BTN_2, uinput.KEY_X),
+verticalMap = ((cwiid.BTN_A, uinput.KEY_Z),
+        (cwiid.BTN_B, uinput.KEY_X),
         (NUNCHUK_Z, uinput.KEY_S),
         (NUNCHUK_C, uinput.KEY_A),
         (cwiid.BTN_PLUS, uinput.KEY_Q),
@@ -123,16 +121,27 @@ def wiimoteCallback(list,t):
     lastMessage = time.time()
     WIIMOTE_EVENT.set()
 
-def emulate(controllerName="WiimoteButtons", horizontal=False):
+def emulate(controllerName="WiimoteController", horizontal=False):
     global running
     
-    events = [(uinput.KEY_ESC[0],i) for i in range(uinput.KEY_ESC[1], uinput.KEY_MICMUTE[1]+1)]
+    padEvents = [uinput.ABS_X + (0,1023,0,0), 
+                 uinput.ABS_Y + (0,1023,0,0), 
+                 uinput.BTN_A,
+                 uinput.BTN_B,
+                 uinput.BTN_C,
+                 uinput.BTN_X,
+                 uinput.BTN_Y,
+                 uinput.BTN_Z]
+    kbdEvents = [(uinput.KEY_ESC[0],i) for i in range(uinput.KEY_ESC[1], uinput.KEY_MICMUTE[1]+1)]
+    events = padEvents + kbdEvents
 
     def updateLEDs():
         if horizontal:
             wm.led = cwiid.LED2_ON | cwiid.LED3_ON
         else:
             wm.led = cwiid.LED1_ON | cwiid.LED4_ON
+
+    nunchuck = False
 
     with uinput.Device(events,name=controllerName) as device:
             try:
@@ -169,7 +178,7 @@ def emulate(controllerName="WiimoteButtons", horizontal=False):
                             if pressed & wii:
                                 press(device, u)
                             elif released & wii:
-                                release(devic2, u)
+                                release(device, u)
                     elif pressed or released:
                         map = verticalMap if not horizontal else horizontalMap
 
@@ -180,20 +189,20 @@ def emulate(controllerName="WiimoteButtons", horizontal=False):
                                 release(device, u)
                                 
                     if 'nunchuk' in wm.state:
-                        def stick(offset,prevOffset,key):
-                            if offset < NUNCHUK_DEADZONE-NUNCHUK_HYSTERESIS and prevOffset >= NUNCHUK_DEADZONE-NUNCHUK_HYSTERESIS:
-                                release(device, key)
-                            elif offset >= NUNCHUK_DEADZONE:
-                                press(device, key)
-
+                        if not nunchuck:
+                            nunchuck = True
+                            horizontal = False
                         x,y = wm.state['nunchuk']['stick']
+                        def fix(v):
+                            v = int(512+512*1.35*(v-128)/128)
+                            if v < 0:
+                                v = 0
+                            elif v > 1023:
+                                v = 1023
+                            return v
 
-                        stick(x-128,prevNunchukX-128,uinput.KEY_RIGHT)
-                        stick(128-x,128-prevNunchukX,uinput.KEY_LEFT)
-                        stick(y-128,prevNunchukY-128,uinput.KEY_UP)
-                        stick(128-y,128-prevNunchukY,uinput.KEY_DOWN)
-
-                        prevNunchukX, prevNunchukY = x,y
+                        device.emit(uinput.ABS_X, fix(x), syn=False)
+                        device.emit(uinput.ABS_Y, fix(y))
 
             except KeyboardInterrupt:
                 pass
@@ -233,9 +242,9 @@ def run(command):
                 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Use Wiimote to emulate a RetroArch controller")
-    parser.add_argument("-o", "--horizontal", action="store_true", help="Horizontal mode (without lightgun)")
+    parser.add_argument("-o", "--horizontal", action="store_true", help="Horizontal mode")
     #parser.add_argument("-m", "--mouse-name", help="Set name of mouse device", default="LightgunMouse")
-    parser.add_argument("-b", "--buttons-name", help="Set name of buttons device", default="WiimoteButtons")
+    parser.add_argument("-b", "--buttons-name", help="Set name of buttons device", default="WiimoteController")
     parser.add_argument("-B", "--background-connect", type=float, default=0, help="Connect in background for this many seconds")
     parser.add_argument("command", help="Run this command while simulating a mouse", nargs="?")
     args = parser.parse_args()
