@@ -1057,7 +1057,8 @@ if __name__ == '__main__':
         if args.demo:
             demo()
         else:
-            pygame.quit()
+            if not args.terminal:
+		pygame.quit()
             if args.command:
                 thread = threading.Thread(target=run, args=(args.command,))
                 thread.daemon = True
