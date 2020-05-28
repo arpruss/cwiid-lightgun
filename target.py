@@ -1,9 +1,11 @@
 import pygame
+import threading
+import lightgun
 import math
 import os
 import time
 
-COLOR_BACKGROUND = (0,0,0)
+COLOR_BACKGROUND = (0,100,0)
 COLOR_TARGET_LINES = (200,200,200)
 COLOR_TARGET_SCORES = (255,255,255)
 COLOR_BULLET = (255,0,0)
@@ -15,7 +17,7 @@ score = 0
 target = None       
 
 class Target:
-    def __init__(self, circles=10, size=0.5, shots=10):
+    def __init__(self, circles=10, size=0.4, shots=10):
         self.circles = circles
         self.size = size
         self.shots = shots
@@ -91,6 +93,7 @@ def PlayGame():
     bullets = []
     score = 0
     
+    startTime = time.time()
     running = True
 
     while running and len(bullets)+1 < target.shots:
@@ -102,12 +105,18 @@ def PlayGame():
             elif event.type == pygame.VIDEORESIZE:
                 surface = pygame.display.set_mode((event.w, event.h),pygame.RESIZABLE)
                 getDimensions()
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                target.shoot(event.pos)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and time.time()-startTime>0.25:
+                target.shoot(pygame.mouse.get_pos())
         drawBoard()
         pygame.display.flip()
         
     return running
+
+print("Press 1+2 on Wiimote, ensuring Wii is off.")
+lightgun.connect()
+t = threading.Thread(target=lightgun.emulateMouse,kwargs={"mouseName":"miniMouse", "rumble":True})
+t.daemon = True
+t.start()
 
 pygame.init()
 pygame.font.init()
@@ -120,12 +129,16 @@ clock = pygame.time.Clock()
 getDimensions()
 pygame.display.set_caption("target")
 
+visibleCursor = pygame.mouse.get_cursor()
+invisibleCursor = ((8,8),(0,0),(0,0,0,0,0,0,0,0),(0,0,0,0,0,0,0,0))
+
 while True:
-    pygame.mouse.set_visible(True)
+    pygame.mouse.set_cursor(*visibleCursor)
     target = ChooseGame()
     if target is None:
         break
-    pygame.mouse.set_visible(False)
+    pygame.mouse.set_cursor(*invisibleCursor)
+    #pygame.mouse.set_visible(False)
     if not PlayGame():
         break
     time.sleep(5)

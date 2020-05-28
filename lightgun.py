@@ -34,6 +34,7 @@ WINDOW_SIZE = None
 PXSCALE = 1
 ACCEL_FILTER_TIME = 0.25
 PYGAME_MODE = True
+RUMBLE_TIME = 0.06
 wm = None
 running = True
 WIIMOTE_EVENT = threading.Event()
@@ -845,7 +846,7 @@ def demo():
 
     pygame.quit()
 
-def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons", horizontal=False):
+def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons", horizontal=False,rumble=False):
     global running
     
     size = WINDOW_SIZE or (1920,int(0.5+1920/CONFIG.aspect))
@@ -863,6 +864,8 @@ def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons", hori
             wm.led = cwiid.LED2_ON | cwiid.LED3_ON
         else:
             wm.led = cwiid.LED1_ON | cwiid.LED4_ON
+
+    rumbleStarted = None
 
     with uinput.Device(events,name=mouseName) as device:
         with uinput.Device(events2,name=controllerName) as device2:
@@ -909,8 +912,14 @@ def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons", hori
                             dev = device if (u == uinput.BTN_LEFT or u == uinput.BTN_RIGHT) else device2
                             if pressed & wii:
                                 press(dev, u)
+                                if rumble:
+                                    wm.rumble = True
+                                    rumbleStarted = time.time()
                             elif released & wii:
                                 release(dev, u)
+
+                    if rumble and rumbleStarted and rumbleStarted + RUMBLE_TIME <= time.time():
+                        wm.rumble = False
                                 
                     if 'nunchuk' in wm.state:
                         def stick(offset,prevOffset,key):
@@ -989,6 +998,7 @@ if __name__ == '__main__':
     parser.add_argument("-b", "--buttons-name", help="Set name of buttons device", default="WiimoteButtons")
     parser.add_argument("-B", "--background-connect", type=float, default=0, help="Connect in background for this many seconds")
     parser.add_argument("command", help="Run this command while simulating a mouse", nargs="?")
+    parser.add_argument("-r", "--rumble", action="store_true", help="Rumble on fire")
     args = parser.parse_args()
 
     try:
@@ -1058,9 +1068,9 @@ if __name__ == '__main__':
             demo()
         else:
             if not args.terminal:
-		pygame.quit()
+                pygame.quit()
             if args.command:
                 thread = threading.Thread(target=run, args=(args.command,))
                 thread.daemon = True
                 thread.start()
-            emulateMouse(mouseName=args.mouse_name,controllerName=args.buttons_name,horizontal=args.horizontal)
+            emulateMouse(mouseName=args.mouse_name,controllerName=args.buttons_name,horizontal=args.horizontal,rumble=args.rumble)
