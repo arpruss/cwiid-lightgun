@@ -581,6 +581,7 @@ def measure(flexible=False,screenWidth=1.):
         time.sleep(0.005)
         checkQuitAndKeys()
         surface.fill(DARK_GREEN)
+        updateAcceleration(wm.state['acc'])
         ir = wm.state['ir_src']
         irQuad = getIRQuad(ir)
         
