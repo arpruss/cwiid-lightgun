@@ -57,7 +57,7 @@ ASPECT_RATIO = 1900./1080
 
 # for moderate angles, setting this to False gets about half a pixel more
 # precision, which probably isn't worth it
-FAST_CORRECTION = True
+FAST_CORRECTION = False
 CALIBRATION_CORNERS = ((0.125,0.05), (0.875,0.05), (0.875,0.95), (0.125,0.95))
 UNIT_SQUARE = ((0,0), (1,0), (1,1), (0,1))
 
@@ -175,7 +175,7 @@ class Config():
                 f.write("aspect %g\n" % self.aspect)
             
     # get the scaling between camera Y units and display Y units by looking at the angle at which
-    # the scaling is lowest
+    # the scaling is lowest: OBSOLETE
     def getYScale(self,h,r=0.01):
         c=h.apply((0,0))
         def d(a,b):
@@ -197,7 +197,7 @@ class Config():
                 d = math.hypot(dx,dy)
                 return xy[0]+self.yCorrection*dx/d/self.aspect,xy[1]+self.yCorrection*dy/d
             else:
-                return h.apply((0,self.yCorrection/self.getYScale(h)))
+                return h.apply((0,self.yCorrection/h.minimumScalingAtOrigin(self.aspect))) # self.getYScale(h)))
         else:
             return h.apply((0,0))
 
@@ -295,6 +295,24 @@ class Homography:
     @property
     def matrix(self):
         return np.array( ( (self.a,self.b,self.c),(self.d,self.e,self.f),(self.g,self.h,1) ) )
+
+    #def jacobianAtOrigin(self):
+    #    return np.array( (self.a-self.c*self.g, self.b-self.c*self.h),
+    #                     (self.d-self.f*self.g, self.e-self.f*self.h) )
+
+    def minimumScalingAtOrigin(self, aspect):
+        # this is the smallest singular value of the Jacobian at the origin
+        # https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/
+        A = aspect*(self.a-self.c*self.g)
+        B = aspect*(self.b-self.c*self.h)
+        C = self.d-self.f*self.g
+        D = self.e-self.f*self.h
+        
+        S1 = A*A+B*B+C*C+D*D
+        u = A*A+B*B-C*C-D*D
+        v = A*C+B*D
+        S2 = math.sqrt(u*u+v*v)
+        return math.sqrt((S1-S2)/2.)
 
     def apply(self,xy):
         x,y=xy
@@ -963,6 +981,7 @@ def connect(backgroundTimeout=0):
     while True:
         try:
             wm = cwiid.Wiimote()
+            print(getAddress(wm))
             wm.mesg_callback = wiimoteCallback
             wm.enable(cwiid.FLAG_MESG_IFC)
             wm.rpt_mode = cwiid.RPT_IR | cwiid.RPT_BTN | cwiid.RPT_ACC | cwiid.RPT_EXT
@@ -1017,10 +1036,6 @@ if __name__ == '__main__':
         ledLocations = CONFIG.ledLocations
 
     if not args.terminal and (not args.background_connect or not ledLocations or args.center):
-        pygame.init()
-        atexit.register(pygame.quit)
-        WINDOW_SIZE = getDisplaySize()
-        CONFIG.aspect = float(WINDOW_SIZE[0])/WINDOW_SIZE[1]
         MYFONT = pygame.font.SysFont(pygame.font.get_default_font(),int(FONT_SIZE*WINDOW_SIZE[1]))                
         surface = pygame.display.set_mode(WINDOW_SIZE, pygame.FULLSCREEN)
         pygame.mouse.set_visible(False)
