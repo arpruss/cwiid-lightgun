@@ -174,19 +174,6 @@ class Config():
                 f.write("ycorrection %g\n" % self.yCorrection)
                 f.write("aspect %g\n" % self.aspect)
             
-    # get the scaling between camera Y units and display Y units by looking at the angle at which
-    # the scaling is lowest: OBSOLETE
-    def getYScale(self,h,r=0.01):
-        c=h.apply((0,0))
-        def d(a,b):
-            ab0 = (a[0]-b[0])*self.aspect
-            ab1 = a[1]-b[1]
-            return ab0*ab0+ab1*ab1
-        def f(angle):
-            return d(h.apply((r*math.cos(angle),r*math.sin(angle))),c)
-        z,_ = minimize(f,0,math.pi)
-        return math.sqrt(z)/r
-
     def pointerPosition(self,irQuad):
         h = Homography(irQuad,self.ledLocations)
         if self.yCorrection:
@@ -197,7 +184,7 @@ class Config():
                 d = math.hypot(dx,dy)
                 return xy[0]+self.yCorrection*dx/d/self.aspect,xy[1]+self.yCorrection*dy/d
             else:
-                return h.apply((0,self.yCorrection/h.minimumScalingAtOrigin(self.aspect))) # self.getYScale(h)))
+                return h.apply((0,self.yCorrection/h.minimumScalingAtOrigin(self.aspect))) 
         else:
             return h.apply((0,0))
 
@@ -301,8 +288,11 @@ class Homography:
     #                     (self.d-self.f*self.g, self.e-self.f*self.h) )
 
     def minimumScalingAtOrigin(self, aspect):
-        # this is the smallest singular value of the Jacobian at the origin
-        # https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/
+        # This measures the lowest scaling between camera and screen coordinates.
+        # Geometric intuition (I haven't proved it) suggests this corresponds to
+        # the correct conversion between camera and screen coordinates for y adjustment.
+        # This is the smallest singular value of the ^acobian at the origin
+        # ( https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/ )
         A = aspect*(self.a-self.c*self.g)
         B = aspect*(self.b-self.c*self.h)
         C = self.d-self.f*self.g
