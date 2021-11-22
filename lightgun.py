@@ -1036,6 +1036,10 @@ if __name__ == '__main__':
         ledLocations = CONFIG.ledLocations
 
     if not args.terminal and (not args.background_connect or not ledLocations or args.center):
+        pygame.init()
+        atexit.register(pygame.quit)
+        WINDOW_SIZE = getDisplaySize()
+        CONFIG.aspect = float(WINDOW_SIZE[0])/WINDOW_SIZE[1]
         MYFONT = pygame.font.SysFont(pygame.font.get_default_font(),int(FONT_SIZE*WINDOW_SIZE[1]))                
         surface = pygame.display.set_mode(WINDOW_SIZE, pygame.FULLSCREEN)
         pygame.mouse.set_visible(False)
