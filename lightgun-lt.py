@@ -437,18 +437,30 @@ def points3To4(points):
     missingLED = fix(CONFIG.ledLocations[missing])
 
     if lastQuad is None:
-        return None
-    lastPoint = lastQuad[missing]
-    bestD = float("inf")
-    bestP = None
-    for h in hs:
-        p = p3p.applyHomography(h, missingLED)
-        d = math.hypot(p[0]-lastPoint[0],p[1]-lastPoint[1])
-        if d < bestD:
-            bestD = d
-            bestP = p
-    if bestP is None:
-        return None
+        # take the solution that minimizes skew
+        bestD2 = float("inf")
+        bestH = None
+        for h in hs:
+            hh = Homography(h)
+            d2 = hh.g*hh.g+hh.h*hh.h
+            if d2 < bestD2:
+                bestD2 = d2
+                bestH = h
+        if bestH is None:
+            return None
+        bestP = p3p.applyHomography(bestH, missingLED)
+    else:
+        lastPoint = lastQuad[missing]
+        bestD = float("inf")
+        bestP = None
+        for h in hs:
+            p = p3p.applyHomography(h, missingLED)
+            d = math.hypot(p[0]-lastPoint[0],p[1]-lastPoint[1])
+            if d < bestD:
+                bestD = d
+                bestP = p
+        if bestP is None:
+            return None
 
     out = [None,None,None,None]
     for i in range(4):
