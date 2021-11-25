@@ -13,7 +13,6 @@ import argparse
 import subprocess
 
 USE_P3P = True # use P3P if only three points are visible at a given time
-P3P_PROXIMITY_PREFERENCE = True # choose the solution closest to the last solution
 
 if USE_P3P:
     import p3p
@@ -429,9 +428,10 @@ def points3To4(points):
         return (p[0]*CONFIG.aspect,p[1],0)
 
     source = (fix(CONFIG.ledLocations[identified[i]]) for i in range(3))
-    hs = p3p.getHomographies(*points,*source)
+    hs = p3p.homographies(*points,*source)
     if not hs:
         return None
+    return None
 
     bestR2 = float("inf")
     missingLED = fix(CONFIG.ledLocations[missing])
@@ -442,18 +442,18 @@ def points3To4(points):
     bestD = float("inf")
     bestP = None
     for h in hs:
-        p = p3p.applyHomography(h, *missingLED)
+        p = p3p.applyHomography(h, missingLED)
         d = math.hypot(p[0]-lastPoint[0],p[1]-lastPoint[1])
         if d < bestD:
             bestD = d
             bestP = p
-    if best is None:
+    if bestP is None:
         return None
 
     out = [None,None,None,None]
     for i in range(4):
         if i == missing:
-            out[i] = p
+            out[i] = bestP
         else:
             out[i] = points[identified.index(i)]
 
