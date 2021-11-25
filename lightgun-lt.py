@@ -1,4 +1,3 @@
-
 import cwiid
 import uinput
 import time
@@ -53,6 +52,7 @@ NUNCHUK_DEADZONE = 40
 NUNCHUK_HYSTERESIS = 10
 ASPECT_RATIO = 1900./1080
 #CAMERA_ASPECT_RATIO = 1024./768
+INVALIDATE_LAST_QUAD_TIME = 2
 
 # for moderate angles, setting this to False gets about half a pixel more
 # precision, which probably isn't worth it
@@ -173,8 +173,7 @@ class Config():
                 f.write("ycorrection %g\n" % self.yCorrection)
                 f.write("aspect %g\n" % self.aspect)
             
-    def pointerPosition(self,irQuad):
-        h = Homography(irQuad,self.ledLocations)
+    def pointerPosition(self,h):
         if self.yCorrection:
             if FAST_CORRECTION:
                 xy = h.apply((0,0))
@@ -245,16 +244,22 @@ def wiimoteCallback(list,t):
     WIIMOTE_EVENT.set()
 
 # 1280
-INTRINSIC = np.array( ( [1280/768.,0,0.5],
-    [0,1280/768.,0.5],
-    [0,0,1] ), dtype=np.float32 )
+#INTRINSIC = np.array( ( [1280/768.,0,0.5],
+#    [0,1280/768.,0.5],
+#    [0,0,1] ), dtype=np.float32 )
 
 class Homography:
     def __init__(self,*args):
         if len(args) == 2:
             input = args[0]
             output = args[1]
-            #http://www.corrmap.com/features/homography_transformation.php
+            if USE_P3P:
+                R,T = p3p.p4p(output,input)
+                if R is not None:
+                    h = p3p.toHomography(R,T)
+                    self.a,self.b,self.c,self.d,self.e,self.f,self.g,self.h = h
+                    return
+            #https://web.archive.org/web/20190503154012/http://www.corrmap.com/features/homography_transformation.php
             x1,x2,x3,x4=tuple(input[i][0] for i in range(4))
             y1,y2,y3,y4=tuple(input[i][1] for i in range(4))
             X1,X2,X3,X4=tuple(output[i][0] for i in range(4))
@@ -290,7 +295,7 @@ class Homography:
         # This measures the lowest scaling between camera and screen coordinates.
         # Geometric intuition (I haven't proved it) suggests this corresponds to
         # the correct conversion between camera and screen coordinates for y adjustment.
-        # This is the smallest singular value of the ^acobian at the origin
+        # This is the smallest singular value of the Jacobian at the origin
         # ( https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/ )
         A = aspect*(self.a-self.c*self.g)
         B = aspect*(self.b-self.c*self.h)
@@ -380,6 +385,7 @@ def updateAcceleration(accel):
         pass
 
 lastQuad = None
+lastQuadTime = 0
 
 def identifyPoints(points):
     rot = (lastAngle-math.pi/2)
@@ -416,11 +422,11 @@ def identifyPoints(points):
 
 def points3To4(points):
     if CONFIG.ledLocations is None:
-        return None
+        return None,None
 
     identified = identifyPoints(points)
     if None in identified:
-        return None
+        return None,None
 
     missing = tuple(set((0,1,2,3)) - set(identified))[0]
 
@@ -430,11 +436,15 @@ def points3To4(points):
     source = (fix(CONFIG.ledLocations[identified[i]]) for i in range(3))
     hs = p3p.homographies(*points,*source)
     if not hs:
-        return None
-    return None
+        return None,None
 
     bestR2 = float("inf")
     missingLED = fix(CONFIG.ledLocations[missing])
+
+    if lastQuad and lastQuadTime + INVALIDATE_LAST_QUAD_TIME >= time.time():
+        lastQuad = None
+
+    bestH = None
 
     if lastQuad is None:
         # take the solution that minimizes skew
@@ -447,7 +457,7 @@ def points3To4(points):
                 bestD2 = d2
                 bestH = h
         if bestH is None:
-            return None
+            return None,None
         bestP = p3p.applyHomography(bestH, missingLED)
     else:
         lastPoint = lastQuad[missing]
@@ -459,8 +469,9 @@ def points3To4(points):
             if d < bestD:
                 bestD = d
                 bestP = p
+                bestH = h
         if bestP is None:
-            return None
+            return None,None
 
     out = [None,None,None,None]
     for i in range(4):
@@ -469,37 +480,39 @@ def points3To4(points):
         else:
             out[i] = points[identified.index(i)]
 
-    return out
+    return out,Homography(bestH)
     
 def getIRQuad(ir):
-    global lastQuad
+    global lastQuad,lastQuadTime
 
     if ir is None:
-        return None
+        return None,None
 
     # get the IR LED quad, normalized and arranged counterclockwise from lower left
     count = sum((1 for p in ir if p is not None))
 
     if count !=3 and count != 4:
-        return None
+        return None,None
 
     if count == 3 and not USE_P3P:
-        return None
+        return None,None
 
     points = [getPoint(p) for p in ir if p is not None]
 
     if count == 3:
-        points = points3To4(points)
+        points,homography = points3To4(points)
         if points is None:
             return None
         lastQuad = points
-        return points
     else:
         identified = identifyPoints(points)
         if None in identified:
             return None
         lastQuad =[points[identified.index(i)] for i in range(4)]
-        return lastQuad
+        homography = Homography(lastQuad,CONFIG.ledLocations)
+
+    lastQuadTime = time.time()
+    return lastQuad,homography
     
 def getDisplaySize():
     info = pygame.display.Info()
@@ -580,14 +593,14 @@ def measure(flexible=False,screenWidth=1.):
         surface.fill(DARK_GREEN)
         updateAcceleration(wm.state['acc'])
         ir = wm.state['ir_src']
-        irQuad = getIRQuad(ir)
+        irQuad,homography = getIRQuad(ir)
         
         showPoints(ir,irQuad)
 
         if irQuad:
             CONFIG.setLEDLocations(ledPixel,size)
             CONFIG.yCorrection = yCorrection / size[1]
-            s = CONFIG.pointerPosition(irQuad)
+            s = CONFIG.pointerPosition(homography)
             drawCross(s,color=RED)
 
         drawText("HOME: quit without saving", y=0.5+0.075*2)
@@ -726,7 +739,7 @@ def calibrate(flexible=False):
         checkQuitAndKeys()
         surface.fill(BLACK)
         updateAcceleration(wm.state['acc'])
-        irQuad = getIRQuad(ir)
+        irQuad,_ = getIRQuad(ir)
         showPoints(ir,irQuad)
         debounced = 0.5 + lastCalibrated < time.time()
         valid = irQuad and debounced
@@ -793,7 +806,7 @@ def center():
         else:
             break
         ir = wm.state['ir_src']
-        irQuad = getIRQuad(ir)
+        irQuad,_ = getIRQuad(ir)
         showPoints(ir,irQuad)
         #print(lastAngle, (1-index*2)*math.pi/2)
         if irQuad and abs(lastAngle - (1-index*2)*math.pi/2) < math.pi/4:
@@ -835,10 +848,10 @@ def demo():
         checkQuitAndKeys()
         surface.fill(BLACK)
         updateAcceleration(wm.state['acc'])
-        irQuad = getIRQuad(ir)
+        irQuad,homography = getIRQuad(ir)
         showPoints(ir,irQuad)
         if irQuad:
-            screenXY = CONFIG.pointerPosition(irQuad)
+            screenXY = CONFIG.pointerPosition(homography)
             drawCross(screenXY,color=RED)
         pygame.display.flip()
 
@@ -937,9 +950,9 @@ def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons", hori
 
                     if not horizontal:
                         ir = wm.state['ir_src']
-                        irQuad = getIRQuad(ir)
+                        irQuad,homography = getIRQuad(ir)
                         if irQuad:
-                            x,y = CONFIG.pointerPosition(irQuad)
+                            x,y = CONFIG.pointerPosition(homography)
                             x1 = int(size[0]*x)
                             y1 = int(size[1]*(1-y))
                             device.emit(uinput.ABS_X,x1,syn=False)
