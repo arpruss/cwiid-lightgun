@@ -782,7 +782,7 @@ def calibrate(flexible=False):
     ledLocations = computeLEDs(calibrationData,flexible)
     
     CONFIG.ledLocations = ledLocations
-    CONFIG.ycorrection = 0
+    CONFIG.yCorrection = 0
     CONFIG.saveLEDs()
     
     return True

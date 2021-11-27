@@ -10,12 +10,10 @@ import atexit
 import threading
 import argparse
 import subprocess
+import cv2
 
 USE_P3P = True # use P3P if only three points are visible at a given time
 P3P_PROXIMITY_PREFERENCE = True # choose the solution closest to the last solution
-
-if USE_P3P:
-    import cv2
 
 abortConnect = False
 
@@ -247,40 +245,11 @@ def wiimoteCallback(list,t):
 # 1280
 INTRINSIC = np.array( ( [1280/768.,0,0.0],
     [0,1280/768.,0.0],
-    [0,0,1] ), dtype=np.float32 )
+    [0,0,1] ), dtype=np.float64 )
 
 class Homography:
-    def __init__(self,*args):
-        if len(args) == 2:
-            input = args[0]
-            output = args[1]
-            #http://www.corrmap.com/features/homography_transformation.php
-            x1,x2,x3,x4=tuple(input[i][0] for i in range(4))
-            y1,y2,y3,y4=tuple(input[i][1] for i in range(4))
-            X1,X2,X3,X4=tuple(output[i][0] for i in range(4))
-            Y1,Y2,Y3,Y4=tuple(output[i][1] for i in range(4))
-            matrix = np.array( ( [x1,y1,1,0,0,0,-x1*X1,-y1*X1],
-                                 [x2,y2,1,0,0,0,-x2*X2,-y2*X2],
-                                 [x3,y3,1,0,0,0,-x3*X3,-y3*X3],
-                                 [x4,y4,1,0,0,0,-x4*X4,-y4*X4],
-                                 [0,0,0,x1,y1,1,-x1*Y1,-y1*Y1],
-                                 [0,0,0,x2,y2,1,-x2*Y2,-y2*Y2],
-                                 [0,0,0,x3,y3,1,-x3*Y3,-y3*Y3],
-                                 [0,0,0,x4,y4,1,-x4*Y4,-y4*Y4] ) )
-            inv = np.linalg.inv(matrix)
-            self.a,self.b,self.c,self.d,self.e,self.f,self.g,self.h = inv.dot(np.array([X1,X2,X3,X4,Y1,Y2,Y3,Y4]))
-        elif len(args) == 1:
-            if len(args[0]) == 8:
-                self.a,self.b,self.c,self.d,self.e,self.f,self.g,self.h = args[0]
-            elif len(args[0]) == 3:
-                m = np.array(args[0]) / args[0][2][2]
-                self.a,self.b,self.c = m[0]
-                self.d,self.e,self.f = m[1]
-                self.g,self.h = m[2][:2]
-
-    @property
-    def matrix(self):
-        return np.array( ( (self.a,self.b,self.c),(self.d,self.e,self.f),(self.g,self.h,1) ) )
+    def __init__(self,input,output):
+        self.matrix,_ = cv2.findHomography(np.float64(input),np.float64(output))
 
     #def jacobianAtOrigin(self):
     #    return np.array( (self.a-self.c*self.g, self.b-self.c*self.h),
@@ -292,10 +261,10 @@ class Homography:
         # the correct conversion between camera and screen coordinates for y adjustment.
         # This is the smallest singular value of the ^acobian at the origin
         # ( https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/ )
-        A = aspect*(self.a-self.c*self.g)
-        B = aspect*(self.b-self.c*self.h)
-        C = self.d-self.f*self.g
-        D = self.e-self.f*self.h
+        A = aspect*(self.matrix[0][0]-self.matrix[0][2]*self.matrix[2][0])
+        B = aspect*(self.matrix[0][1]-self.matrix[0][2]*self.matrix[2][1])
+        C = self.matrix[1][0]-self.matrix[1][2]*self.matrix[2][0]
+        D = self.matrix[1][1]-self.matrix[1][2]*self.matrix[2][1]
         
         S1 = A*A+B*B+C*C+D*D
         u = A*A+B*B-C*C-D*D
@@ -304,12 +273,11 @@ class Homography:
         return math.sqrt((S1-S2)/2.)
 
     def apply(self,xy):
-        x,y=xy
-        den = self.g*x+self.h*y+1.
-        return (self.a*x+self.b*y+self.c)/den,(self.d*x+self.e*y+self.f)/den
+        out = cv2.perspectiveTransform(np.array(((xy,),),dtype=np.float64),self.matrix)
+        return out[0][0]
 
     def __repr__(self):
-        return repr((self.a,self.b,self.c,self.d,self.e,self.f,self.g,self.h))
+        return repr(self.matrix)
 
 def drawText(s,x=0.5,y=0.5,color=WHITE):
     text = MYFONT.render(s, True, color)
@@ -774,7 +742,7 @@ def calibrate(flexible=False):
     ledLocations = computeLEDs(calibrationData,flexible)
     
     CONFIG.ledLocations = ledLocations
-    CONFIG.ycorrection = 0
+    CONFIG.yCorrection = 0
     CONFIG.saveLEDs()
     
     return True
@@ -839,11 +807,11 @@ def demo():
 
     while running:
         wiimoteWait(0.25)
+        surface.fill(BLACK)
         drawText("Press HOME to exit")
         buttons = getButtons(wm.state)
         ir = wm.state['ir_src']
         checkQuitAndKeys()
-        surface.fill(BLACK)
         updateAcceleration(wm.state['acc'])
         irQuad = getIRQuad(ir)
         showPoints(ir,irQuad)
