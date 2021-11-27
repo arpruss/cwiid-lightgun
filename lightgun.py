@@ -245,8 +245,8 @@ def wiimoteCallback(list,t):
     WIIMOTE_EVENT.set()
 
 # 1280
-INTRINSIC = np.array( ( [1280/768.,0,0.5],
-    [0,1280/768.,0.5],
+INTRINSIC = np.array( ( [1280/768.,0,0.0],
+    [0,1280/768.,0.0],
     [0,0,1] ), dtype=np.float32 )
 
 class Homography:
