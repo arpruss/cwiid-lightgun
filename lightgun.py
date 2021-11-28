@@ -259,7 +259,7 @@ class Homography:
         # This measures the lowest scaling between camera and screen coordinates.
         # Geometric intuition (I haven't proved it) suggests this corresponds to
         # the correct conversion between camera and screen coordinates for y adjustment.
-        # This is the smallest singular value of the ^acobian at the origin
+        # This is the smallest singular value of the Jacobian at the origin
         # ( https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/ )
         A = aspect*(self.matrix[0][0]-self.matrix[0][2]*self.matrix[2][0])
         B = aspect*(self.matrix[0][1]-self.matrix[0][2]*self.matrix[2][1])
