@@ -65,7 +65,7 @@ verticalMap = ((cwiid.BTN_B, uinput.BTN_MOUSE),
         (cwiid.BTN_2, uinput.KEY_X),
         (NUNCHUK_Z, uinput.KEY_S),
         (NUNCHUK_C, uinput.KEY_A),
-        (cwiid.BTN_PLUS, uinput.KEY_Q),
+        (cwiid.BTN_PLUS, uinput.KEY_SPACE),
         (cwiid.BTN_HOME, uinput.KEY_ENTER),
         (cwiid.BTN_DOWN, uinput.KEY_DOWN),
         (cwiid.BTN_UP, uinput.KEY_UP),
@@ -957,7 +957,9 @@ def connect(backgroundTimeout=0):
 
 def run(command):
     global running, args, abortConnect
+    print("lightgun: run "+command)
     subprocess.run(command, shell=True)
+    print("lightgun: finished running")
     running = False
     abortConnect = True
                 
@@ -1046,6 +1048,7 @@ if __name__ == '__main__':
         else:
             if not args.terminal:
                 pygame.quit()
+                atexit.unregister(pygame.quit)
             if args.command:
                 thread = threading.Thread(target=run, args=(args.command,))
                 thread.daemon = True
