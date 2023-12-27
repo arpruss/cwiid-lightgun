@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 import cwiid
 import uinput
 import time
