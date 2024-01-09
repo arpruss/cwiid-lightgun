@@ -33,7 +33,7 @@ def update(values):
         press(uinput.KEY_RIGHT, 0)
         press(uinput.KEY_LEFT, 0)
     else:
-        print(top/total,right/total)
+        #print(top/total,right/total)
         if top > FRACTION * total:
             press(uinput.KEY_UP, 1)
             press(uinput.KEY_DOWN, 0)
@@ -56,7 +56,7 @@ def update(values):
 def wiimoteCallback(list,t):
     global zeroValues,calibrate
     for item in list:
-        print(item)
+        #print(item)
         if item[0] == 1:
             if (item[1] & 8) and zeroValues is None:
                 calibrate = True
