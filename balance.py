@@ -22,6 +22,7 @@ def press(key,state):
             pressed.remove(key)
 
 def update(values):
+    #print(values)
     right = values['right_top']+values['right_bottom']
     #left = values['left_top']+values['left_bottom']
     top = values['left_top']+values['right_top']
