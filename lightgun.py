@@ -18,7 +18,10 @@ P3P_PROXIMITY_PREFERENCE = True # choose the solution closest to the last soluti
 SUPPORT_TWO_POINT = True
 
 if SUPPORT_TWO_POINT:
-    from scipy.spatial.transform import Rotation
+    try:
+        from scipy.spatial.transform import Rotation
+    except:
+        SUPPORT_TWO_POINT = False
 
 abortConnect = False
 
@@ -57,7 +60,7 @@ NUNCHUK_HYSTERESIS = 10
 ASPECT_RATIO = 1920./1080
 TWO_POINT = True
 #CAMERA_ASPECT_RATIO = 1363./768
-FOCAL_LENGTH_PIXELS = 1363.4
+FOCAL_LENGTH_PIXELS = 1363.4 # 1363.4, 1634.5??
 CAMERA_HEIGHT_PIXELS = 768
 
 # for moderate angles, setting this to False gets about half a pixel more
@@ -132,6 +135,7 @@ class Config():
         self.aspect = 1920./1080.
         self.ledLocations = None
         self.yCorrection = 0
+        self.ledOffset = 0 # currently only works with TWO_POINT mode
         try:
             with open(LED_FILE) as f:
                 s = tuple(map(float,f.readline().strip().split(",")))
@@ -148,6 +152,8 @@ class Config():
                             self.yCorrection = float(l[1])/s[1]
                         elif l[0].lower() == "aspect":
                             self.aspect = float(l[1])
+                        elif l[0].lower() == "offset":
+                            self.ledOffset = float(l[1])/s[1]
                 except:
                     pass
         except Exception as e:
@@ -196,7 +202,6 @@ class Config():
         else:
             return h.apply((0,0))
 
-CONFIG = Config()
             
 class FakeWiimote():
     def __init__(self):
@@ -288,8 +293,8 @@ def pointerPositionP2PA(p1,p2,g):
     #print("dir1n",dir1)
     #print("dir2n",dir2)
     #print("aspect",CONFIG.aspect)
-    m1 = (CONFIG.ledLocations[0][0]*CONFIG.aspect,0,CONFIG.ledLocations[0][1])
-    m2 = (CONFIG.ledLocations[1][0]*CONFIG.aspect,0,m1[2]) 
+    m1 = (CONFIG.ledLocations[0][0]*CONFIG.aspect,CONFIG.ledOffset,CONFIG.ledLocations[0][1])
+    m2 = (CONFIG.ledLocations[1][0]*CONFIG.aspect,CONFIG.ledOffset,m1[2]) 
     #print("m1",m1)
     #print("m2",m2)
     d1 = math.hypot(dir1[0],dir1[1])
@@ -1129,6 +1134,7 @@ if __name__ == '__main__':
     parser.add_argument("-t", "--terminal", action="store_true", help="Use terminal rather than pygame (doesn't work for calibration)")
     parser.add_argument("-m", "--mouse-name", help="Set name of mouse device", default="LightgunMouse")
     parser.add_argument("-b", "--buttons-name", help="Set name of buttons device", default="WiimoteButtons")
+    parser.add_argument("-l", "--led-file", help="Configuration file for LEDs", default=LED_FILE)
     parser.add_argument("-B", "--background-connect", type=float, default=0, help="Connect in background for this many seconds")
     parser.add_argument("-2", "--two-point", action="store_true", help="Two point mode")
     parser.add_argument("command", help="Run this command while simulating a mouse", nargs="?")
@@ -1140,6 +1146,10 @@ if __name__ == '__main__':
     except:
         pass
     
+    LED_FILE = args.led_file
+    print(LED_FILE)
+    CONFIG = Config()
+
     thread = threading.Thread(target=connect, args=(args.background_connect,))
     thread.daemon = True
     thread.start()
