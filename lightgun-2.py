@@ -54,7 +54,7 @@ NUNCHUK_C = cwiid.NUNCHUK_BTN_C << NUNCHUK_SHIFT
 NUNCHUK_Z = cwiid.NUNCHUK_BTN_Z << NUNCHUK_SHIFT
 NUNCHUK_DEADZONE = 40
 NUNCHUK_HYSTERESIS = 10
-ASPECT_RATIO = 1900./1080
+ASPECT_RATIO = 1920./1080
 TWO_POINT = True
 #CAMERA_ASPECT_RATIO = 1363./768
 FOCAL_LENGTH_PIXELS = 1363.4
@@ -181,7 +181,7 @@ class Config():
             
     def pointerPosition(self,irQuad):
         if TWO_POINT:
-            return twoPointsWithAccelerationPointer(irQuad[0],irQuad[1],lastAccel)
+            return pointerPositionP2PA(irQuad[0],irQuad[1],lastAccel)
     
         h = Homography(irQuad,self.ledLocations)
         if self.yCorrection:
@@ -215,8 +215,8 @@ def solutionToXYZ(m1,m2,d1,d2,h1,h2): # assuming camera y-coordinate is < marker
     z = h1 + m1[2]
     return np.array([x,y,z])
     
-def compute(m1,m2,cos_alpha,rho1,rho2):
-    #print("cos_alpha,alpha",cos_alpha,math.acos(cos_alpha)*180/math.pi)
+def compute(m1,m2,cos_beta,rho1,rho2):
+    #print("cos_beta,alpha",cos_beta,math.acos(cos_beta)*180/math.pi)
     i_is_1 = rho1 != math.pi/2
     if i_is_1:
         rho_i = rho1
@@ -228,9 +228,9 @@ def compute(m1,m2,cos_alpha,rho1,rho2):
         delta = m1[2] - m2[2]
     cot_j = 1/math.tan(rho_j)
     tan_i = math.tan(rho_i)
-    #cos_alpha = math.cos(alpha)
+    #cos_beta = math.cos(alpha)
     cottan = cot_j * tan_i
-    a = 1-2*cos_alpha*cottan + cottan*cottan
+    a = 1-2*cos_beta*cottan + cottan*cottan
     d = math.hypot(m2[1]-m1[1],m2[0]-m1[0])
     if m2[2] == m1[2]:
         dj = d/math.sqrt(a)
@@ -238,10 +238,10 @@ def compute(m1,m2,cos_alpha,rho1,rho2):
         hj = -dj * cot_j
         hi = hj
         #print("d,di,dj",d,di,dj)
-        #print("test",di*di+dj*dj-2*di*dj*cos_alpha,d*d)
+        #print("test",di*di+dj*dj-2*di*dj*cos_beta,d*d)
         #print("hi,hj",hi,hj)
     else:
-        b = 2*delta*tan_i * (cos_alpha-cottan)
+        b = 2*delta*tan_i * (cos_beta-cottan)
         c = delta*delta*tan_i*tan_i - d*d
         #assert(a>=0)
         #assert(b*b-4*a*c>=0)
@@ -265,7 +265,7 @@ def compute(m1,m2,cos_alpha,rho1,rho2):
 def n(v):
     return np.array(v) / np.linalg.norm(v)
         
-def twoPointsWithAccelerationPointer(p1,p2,g):
+def pointerPositionP2PA(p1,p2,g):
     if not SUPPORT_TWO_POINT:
         return None
     #print("p1",p1)
@@ -281,6 +281,7 @@ def twoPointsWithAccelerationPointer(p1,p2,g):
     #print("dir2o",dir2Orig)
     accelerometerRotation = Rotation.align_vectors( [down,prod],[g,prod] )[0].as_matrix()
     #print("down??",accelerometerRotation.dot(g))
+
     # accelerometerRotation.dot(g) should be down
     dir1 = accelerometerRotation.dot(dir1Orig)
     dir2 = accelerometerRotation.dot(dir2Orig)
@@ -296,13 +297,13 @@ def twoPointsWithAccelerationPointer(p1,p2,g):
     h1 = -dir1[2]
     h2 = -dir2[2]
     
-    cos_alpha = cosAngle((dir1[0],dir1[1]),(dir2[0],dir2[1]))
+    cos_beta = cosAngle((dir1[0],dir1[1]),(dir2[0],dir2[1]))
     rho1 = math.pi-math.atan2(d1,h1)
     rho2 = math.pi-math.atan2(d2,h2)
     #print("rho1",rho1*180/math.pi)
     #print("rho2",rho2*180/math.pi)
 
-    cameraPosition = solutionToXYZ(m1,m2,*compute(m1,m2,cos_alpha,rho1,rho2))
+    cameraPosition = solutionToXYZ(m1,m2,*compute(m1,m2,cos_beta,rho1,rho2))
     #print("cpos",cameraPosition)
     dir1Obj = m1 - cameraPosition
     dir2Obj = m2 - cameraPosition
@@ -313,17 +314,15 @@ def twoPointsWithAccelerationPointer(p1,p2,g):
     #print("test1",cameraToObjectRotation.dot(n(dir1Orig)),n(dir1Obj))
     
     cameraPointing = cameraToObjectRotation.dot( np.array((0.,1.,0.)) )
+    yCorrection = cameraToObjectRotation.dot( np.array((0.,0.,CONFIG.yCorrection)) )
+    cameraPosition += yCorrection
 
-    #print("cpoint",cameraPointing)
-    
     dy = -cameraPosition[1]
     t = dy / cameraPointing[1]
     
     x = cameraPosition[0] + t * cameraPointing[0]
     z = cameraPosition[2] + t * cameraPointing[2]
 
-    #print(x,z)
-    
     return (x/CONFIG.aspect,z)
 
 # find a local minimum        

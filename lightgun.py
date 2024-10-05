@@ -15,6 +15,10 @@ import cv2
 
 USE_P3P = True # use P3P if only three points are visible at a given time
 P3P_PROXIMITY_PREFERENCE = True # choose the solution closest to the last solution
+SUPPORT_TWO_POINT = True
+
+if SUPPORT_TWO_POINT:
+    from scipy.spatial.transform import Rotation
 
 abortConnect = False
 
@@ -51,7 +55,10 @@ NUNCHUK_Z = cwiid.NUNCHUK_BTN_Z << NUNCHUK_SHIFT
 NUNCHUK_DEADZONE = 40
 NUNCHUK_HYSTERESIS = 10
 ASPECT_RATIO = 1920./1080
-#CAMERA_ASPECT_RATIO = 1024./768
+TWO_POINT = True
+#CAMERA_ASPECT_RATIO = 1363./768
+FOCAL_LENGTH_PIXELS = 1363.4
+CAMERA_HEIGHT_PIXELS = 768
 
 # for moderate angles, setting this to False gets about half a pixel more
 # precision, which probably isn't worth it
@@ -122,7 +129,7 @@ class Config():
         except:
             pass
             
-        self.aspect = 1900./1080.
+        self.aspect = 1920./1080.
         self.ledLocations = None
         self.yCorrection = 0
         try:
@@ -173,6 +180,9 @@ class Config():
                 f.write("aspect %g\n" % self.aspect)
             
     def pointerPosition(self,irQuad):
+        if TWO_POINT:
+            return pointerPositionP2PA(irQuad[0],irQuad[1],lastAccel)
+    
         h = Homography(irQuad,self.ledLocations)
         if self.yCorrection:
             if FAST_CORRECTION:
@@ -191,6 +201,129 @@ CONFIG = Config()
 class FakeWiimote():
     def __init__(self):
         self.state = { "acc":(128,128,128), "buttons":0, "ir_src":[], "fake":True }
+
+def cosAngle(a,b):
+    return math.cos( math.atan2(b[1],b[0])-math.atan2(a[1],a[0]) )
+
+def solutionToXYZ(m1,m2,d1,d2,h1,h2): # assuming camera y-coordinate is < marker y-coordinate
+    assert(m1[1]==m2[1]) # for simplicity
+    assert(m1[0]<m2[0])
+    # https://npworld.wolfram.com/Circle-CircleIntersection.html with R=d1 and r=d2
+    d = math.hypot(m2[1]-m1[1],m2[0]-m1[0])
+    x = m1[0]+(d*d-d2*d2+d1*d1)/(2*d) # magnitude of vector from m1 to intersection    
+    y = m1[1]-math.sqrt(4*d*d*d1*d1-(d*d-d2*d2+d1*d1)**2)/(2*d)
+    z = h1 + m1[2]
+    return np.array([x,y,z])
+    
+def compute(m1,m2,cos_beta,rho1,rho2):
+    #print("cos_beta,alpha",cos_beta,math.acos(cos_beta)*180/math.pi)
+    i_is_1 = rho1 != math.pi/2
+    if i_is_1:
+        rho_i = rho1
+        rho_j = rho2
+        delta = m2[2] - m1[2]
+    else:
+        rho_i = rho2
+        rho_j = rho1
+        delta = m1[2] - m2[2]
+    cot_j = 1/math.tan(rho_j)
+    tan_i = math.tan(rho_i)
+    #cos_beta = math.cos(alpha)
+    cottan = cot_j * tan_i
+    a = 1-2*cos_beta*cottan + cottan*cottan
+    d = math.hypot(m2[1]-m1[1],m2[0]-m1[0])
+    if m2[2] == m1[2]:
+        dj = d/math.sqrt(a)
+        di = dj*cot_j*tan_i
+        hj = -dj * cot_j
+        hi = hj
+        #print("d,di,dj",d,di,dj)
+        #print("test",di*di+dj*dj-2*di*dj*cos_beta,d*d)
+        #print("hi,hj",hi,hj)
+    else:
+        b = 2*delta*tan_i * (cos_beta-cottan)
+        c = delta*delta*tan_i*tan_i - d*d
+        #assert(a>=0)
+        #assert(b*b-4*a*c>=0)
+        sqrt_disc = math.sqrt(b*b-4*a*c)
+        for s in (-1,1):
+            dj = (-b + s * sqrt_disc)/(2.*a)
+            if dj < 0:
+                continue
+            hj = -dj * cot_j
+            hi = hj + delta
+            di = -(-dj*cot_j+delta)*tan_i
+            if di >= 0:
+                break
+        else:
+            raise ValueError()
+    if i_is_1:
+        return (di,dj,hi,hj)
+    else:
+        return (dj,di,hj,hi)
+
+def n(v):
+    return np.array(v) / np.linalg.norm(v)
+        
+def pointerPositionP2PA(p1,p2,g):
+    if not SUPPORT_TWO_POINT:
+        return None
+    #print("p1",p1)
+    #print("p2",p2)
+    dir1Orig = np.array([ (p1[0])*CAMERA_HEIGHT_PIXELS,FOCAL_LENGTH_PIXELS,(p1[1])*CAMERA_HEIGHT_PIXELS])
+    dir2Orig = np.array([ (p2[0])*CAMERA_HEIGHT_PIXELS,FOCAL_LENGTH_PIXELS,(p2[1])*CAMERA_HEIGHT_PIXELS])
+    down = np.array([0.,0.,-1.])
+    g = -n(g)
+    prod = np.cross(g,down)
+    #print("g",g)
+    #print("ledLocations", ledLocations)
+    #print("dir1o",dir1Orig)
+    #print("dir2o",dir2Orig)
+    accelerometerRotation = Rotation.align_vectors( [down,prod],[g,prod] )[0].as_matrix()
+    #print("down??",accelerometerRotation.dot(g))
+
+    # accelerometerRotation.dot(g) should be down
+    dir1 = accelerometerRotation.dot(dir1Orig)
+    dir2 = accelerometerRotation.dot(dir2Orig)
+    #print("dir1n",dir1)
+    #print("dir2n",dir2)
+    #print("aspect",CONFIG.aspect)
+    m1 = (CONFIG.ledLocations[0][0]*CONFIG.aspect,0,CONFIG.ledLocations[0][1])
+    m2 = (CONFIG.ledLocations[1][0]*CONFIG.aspect,0,m1[2]) 
+    #print("m1",m1)
+    #print("m2",m2)
+    d1 = math.hypot(dir1[0],dir1[1])
+    d2 = math.hypot(dir2[0],dir2[1])
+    h1 = -dir1[2]
+    h2 = -dir2[2]
+    
+    cos_beta = cosAngle((dir1[0],dir1[1]),(dir2[0],dir2[1]))
+    rho1 = math.pi-math.atan2(d1,h1)
+    rho2 = math.pi-math.atan2(d2,h2)
+    #print("rho1",rho1*180/math.pi)
+    #print("rho2",rho2*180/math.pi)
+
+    cameraPosition = solutionToXYZ(m1,m2,*compute(m1,m2,cos_beta,rho1,rho2))
+    #print("cpos",cameraPosition)
+    dir1Obj = m1 - cameraPosition
+    dir2Obj = m2 - cameraPosition
+    #print("dir1obj",dir1Obj)
+    #print("dir2obj",dir2Obj)
+    
+    cameraToObjectRotation = Rotation.align_vectors( [n(dir1Obj),n(dir2Obj)], [n(dir1Orig), n(dir2Orig)] )[0].as_matrix()
+    #print("test1",cameraToObjectRotation.dot(n(dir1Orig)),n(dir1Obj))
+    
+    cameraPointing = cameraToObjectRotation.dot( np.array((0.,1.,0.)) )
+    yCorrection = cameraToObjectRotation.dot( np.array((0.,0.,CONFIG.yCorrection)) )
+    cameraPosition += yCorrection
+
+    dy = -cameraPosition[1]
+    t = dy / cameraPointing[1]
+    
+    x = cameraPosition[0] + t * cameraPointing[0]
+    z = cameraPosition[2] + t * cameraPointing[2]
+
+    return (x/CONFIG.aspect,z)
 
 # find a local minimum        
 def minimize(f,a,b,n=4):
@@ -308,8 +441,10 @@ def showPoints(ir,irQuad):
     rawPoints = [getPoint(p) for p in ir if p is not None]
 
     if irQuad:
-        for i in range(4):
+        for i in range(len(irQuad)):
             xy = irQuad[i]
+            if xy is None:
+                continue
             x = int(cx + xy[0] * height)
             y = int(cy + (-xy[1]) * height)
             text = MYFONT.render(str(i+1), True, RED if (tuple(xy) in rawPoints) else GRAY)
@@ -329,9 +464,10 @@ def getPoint(p):
     
 accelHistory = []    
 lastAngle = math.pi / 2
+lastAccel = [0,0,1]
     
 def updateAcceleration(accel):
-    global lastAngle
+    global lastAngle,lastAccel
     
     a = accel[0]-128.,accel[1]-128.,accel[2]-128.
     t = time.time()
@@ -344,6 +480,7 @@ def updateAcceleration(accel):
         s[1] += a[1]
         s[2] += a[2]
     try:
+        lastAccel = s
         lastAngle = math.atan2(s[2],s[0])
     except:
         pass
@@ -364,22 +501,31 @@ def identifyPoints(points):
 
     def rotate(p):
         return (p[0]*c-p[1]*s,p[0]*s+p[1]*c)
+        
+    if len(points) == 2:
+        p1 = rotate((points[0][0]-cx,points[0][1]-cy))
+        if p1[0] < 0:
+            identified[0] = 0
+            identified[1] = 1
+        else:
+            identified[0] = 1
+            identified[1] = 0
+    else:
+        for i in range(n):
+            p = rotate((points[i][0]-cx, points[i][1]-cy))
+            if p[0] < 0 and p[1] < 0 and 0 not in identified:
+                identified[i] = 0
+            elif p[0] > 0 and p[1] < 0 and 1 not in identified:
+                identified[i] = 1
+            elif p[0] > 0 and p[1] > 0 and 2 not in identified:
+                identified[i] = 2
+            elif p[0] < 0 and p[1] > 0 and 3 not in identified:
+                identified[i] = 3
 
-    for i in range(n):
-        p = rotate((points[i][0]-cx, points[i][1]-cy))
-        if p[0] < 0 and p[1] < 0 and 0 not in identified:
-            identified[i] = 0
-        elif p[0] > 0 and p[1] < 0 and 1 not in identified:
-            identified[i] = 1
-        elif p[0] > 0 and p[1] > 0 and 2 not in identified:
-            identified[i] = 2
-        elif p[0] < 0 and p[1] > 0 and 3 not in identified:
-            identified[i] = 3
-
-    if None in identified:
-        unidentified = list(set(range(n))-set(identified))
-        if len(unidentified) == 1:
-            identified[identified.index(None)] = unidentified[0]
+        if None in identified:
+            unidentified = list(set(range(n))-set(identified))
+            if len(unidentified) == 1:
+                identified[identified.index(None)] = unidentified[0]
 
     return identified
 
@@ -458,14 +604,21 @@ def getIRQuad(ir):
 
     # get the IR LED quad, normalized and arranged counterclockwise from lower left
     count = sum((1 for p in ir if p is not None))
+    
+    points = [getPoint(p) for p in ir if p is not None]
 
+    if TWO_POINT:
+        if count < 2:
+            return None        
+        if count == 2:
+            identified = identifyPoints(points)
+            return [points[identified.index(0)],points[identified.index(1)],None,None]
+            
     if count !=3 and count != 4:
         return None
 
     if count == 3 and not USE_P3P:
         return None
-
-    points = [getPoint(p) for p in ir if p is not None]
 
     if count == 3:
         points = points3To4(points)
@@ -977,6 +1130,7 @@ if __name__ == '__main__':
     parser.add_argument("-m", "--mouse-name", help="Set name of mouse device", default="LightgunMouse")
     parser.add_argument("-b", "--buttons-name", help="Set name of buttons device", default="WiimoteButtons")
     parser.add_argument("-B", "--background-connect", type=float, default=0, help="Connect in background for this many seconds")
+    parser.add_argument("-2", "--two-point", action="store_true", help="Two point mode")
     parser.add_argument("command", help="Run this command while simulating a mouse", nargs="?")
     parser.add_argument("-r", "--rumble", action="store_true", help="Rumble on fire")
     args = parser.parse_args()
@@ -994,6 +1148,7 @@ if __name__ == '__main__':
         ledLocations = None
     else:
         ledLocations = CONFIG.ledLocations
+    TWO_POINT = args.two_point
 
     if not args.terminal and (not args.background_connect or not ledLocations or args.center):
         pygame.init()
