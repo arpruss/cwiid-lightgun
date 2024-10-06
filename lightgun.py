@@ -15,13 +15,6 @@ import cv2
 
 USE_P3P = True # use P3P if only three points are visible at a given time
 P3P_PROXIMITY_PREFERENCE = True # choose the solution closest to the last solution
-SUPPORT_TWO_POINT = True
-
-if SUPPORT_TWO_POINT:
-    try:
-        from scipy.spatial.transform import Rotation
-    except:
-        SUPPORT_TWO_POINT = False
 
 abortConnect = False
 
@@ -221,7 +214,6 @@ def solutionToXYZ(m1,m2,d1,d2,h1,h2): # assuming camera y-coordinate is < marker
     return np.array([x,y,z])
     
 def compute(m1,m2,cos_beta,rho1,rho2):
-    #print("cos_beta,alpha",cos_beta,math.acos(cos_beta)*180/math.pi)
     i_is_1 = rho1 != math.pi/2
     if i_is_1:
         rho_i = rho1
@@ -243,7 +235,6 @@ def compute(m1,m2,cos_beta,rho1,rho2):
         hj = -dj * cot_j
         hi = hj
         #print("d,di,dj",d,di,dj)
-        #print("test",di*di+dj*dj-2*di*dj*cos_beta,d*d)
         #print("hi,hj",hi,hj)
     else:
         b = 2*delta*tan_i * (cos_beta-cottan)
@@ -271,32 +262,18 @@ def n(v):
     return np.array(v) / np.linalg.norm(v)
         
 def pointerPositionP2PA(p1,p2,g):
-    if not SUPPORT_TWO_POINT:
-        return None
-    #print("p1",p1)
-    #print("p2",p2)
     dir1Orig = np.array([ (p1[0])*CAMERA_HEIGHT_PIXELS,FOCAL_LENGTH_PIXELS,(p1[1])*CAMERA_HEIGHT_PIXELS])
     dir2Orig = np.array([ (p2[0])*CAMERA_HEIGHT_PIXELS,FOCAL_LENGTH_PIXELS,(p2[1])*CAMERA_HEIGHT_PIXELS])
     down = np.array([0.,0.,-1.])
     g = -n(g)
     prod = np.cross(g,down)
-    #print("g",g)
-    #print("ledLocations", ledLocations)
-    #print("dir1o",dir1Orig)
-    #print("dir2o",dir2Orig)
     accelerometerRotation = Rotation.align_vectors( [down,prod],[g,prod] )[0].as_matrix()
-    #print("down??",accelerometerRotation.dot(g))
 
-    # accelerometerRotation.dot(g) should be down
+    # accelerometerRotation.dot(g) should equal down
     dir1 = accelerometerRotation.dot(dir1Orig)
     dir2 = accelerometerRotation.dot(dir2Orig)
-    #print("dir1n",dir1)
-    #print("dir2n",dir2)
-    #print("aspect",CONFIG.aspect)
     m1 = (CONFIG.ledLocations[0][0]*CONFIG.aspect,CONFIG.ledOffset,CONFIG.ledLocations[0][1])
     m2 = (CONFIG.ledLocations[1][0]*CONFIG.aspect,CONFIG.ledOffset,m1[2]) 
-    #print("m1",m1)
-    #print("m2",m2)
     d1 = math.hypot(dir1[0],dir1[1])
     d2 = math.hypot(dir2[0],dir2[1])
     h1 = -dir1[2]
@@ -305,18 +282,12 @@ def pointerPositionP2PA(p1,p2,g):
     cos_beta = cosAngle((dir1[0],dir1[1]),(dir2[0],dir2[1]))
     rho1 = math.pi-math.atan2(d1,h1)
     rho2 = math.pi-math.atan2(d2,h2)
-    #print("rho1",rho1*180/math.pi)
-    #print("rho2",rho2*180/math.pi)
 
     cameraPosition = solutionToXYZ(m1,m2,*compute(m1,m2,cos_beta,rho1,rho2))
-    #print("cpos",cameraPosition)
     dir1Obj = m1 - cameraPosition
     dir2Obj = m2 - cameraPosition
-    #print("dir1obj",dir1Obj)
-    #print("dir2obj",dir2Obj)
     
     cameraToObjectRotation = Rotation.align_vectors( [n(dir1Obj),n(dir2Obj)], [n(dir1Orig), n(dir2Orig)] )[0].as_matrix()
-    #print("test1",cameraToObjectRotation.dot(n(dir1Orig)),n(dir1Obj))
     
     cameraPointing = cameraToObjectRotation.dot( np.array((0.,1.,0.)) )
     yCorrection = cameraToObjectRotation.dot( np.array((0.,0.,CONFIG.yCorrection)) )
@@ -381,9 +352,9 @@ def wiimoteCallback(list,t):
     lastMessage = time.time()
     WIIMOTE_EVENT.set()
 
-# 1280
-INTRINSIC = np.array( ( [1280/768.,0,0.0],
-    [0,1280/768.,0.0],
+# was 1280
+INTRINSIC = np.array( ( [FOCAL_LENGTH_PIXELS/768.,0,0.0],
+    [0,FOCAL_LENGTH_PIXELS/768.,0.0],
     [0,0,1] ), dtype=np.float64 )
 
 class Homography:
@@ -400,6 +371,7 @@ class Homography:
         # the correct conversion between camera and screen coordinates for y adjustment.
         # This is the smallest singular value of the Jacobian at the origin
         # ( https://lucidar.me/en/mathematics/singular-value-decomposition-of-a-2x2-matrix/ )
+
         A = aspect*(self.matrix[0][0]-self.matrix[0][2]*self.matrix[2][0])
         B = aspect*(self.matrix[0][1]-self.matrix[0][2]*self.matrix[2][1])
         C = self.matrix[1][0]-self.matrix[1][2]*self.matrix[2][0]
@@ -1147,7 +1119,6 @@ if __name__ == '__main__':
         pass
     
     LED_FILE = args.led_file
-    print(LED_FILE)
     CONFIG = Config()
 
     thread = threading.Thread(target=connect, args=(args.background_connect,))
@@ -1159,6 +1130,8 @@ if __name__ == '__main__':
     else:
         ledLocations = CONFIG.ledLocations
     TWO_POINT = args.two_point
+    if TWO_POINT:
+        from scipy.spatial.transform import Rotation
 
     if not args.terminal and (not args.background_connect or not ledLocations or args.center):
         pygame.init()
