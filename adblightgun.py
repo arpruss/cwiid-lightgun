@@ -80,7 +80,7 @@ def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons",map=m
                         x1 = 0
                         y1 = 0
                     else:
-                        x1 = int((1-x) * size[0]+.5)
+                        x1 = int(x * size[0]+.5)
                         y1 = int((1-y) * size[0]+.5)
                         if x1 < 0:
                             x1 = 0
