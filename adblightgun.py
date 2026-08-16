@@ -4,8 +4,12 @@ import math
 import sys
 import uinput
 import re
+import atexit
+import os
 
 cmd = ["adb", "logcat", "godot:I", "*:S", "-e", "LightgunData"]
+prox_close = "adb shell am broadcast -a com.oculus.vrpowermanager.prox_close"
+prox_open = "adb shell am broadcast -a com.oculus.vrpowermanager.prox_open"
 
 header = "LightgunData R "
 
@@ -98,4 +102,7 @@ def emulateMouse(mouseName="LightgunMouse",controllerName="WiimoteButtons",map=m
                         device.emit(uinput.ABS_X,x1,syn=False)
                         device.emit(uinput.ABS_Y,y1)
 
+atexit.register(os.system, prox_open)
+os.system(prox_close)
+subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
 emulateMouse()
